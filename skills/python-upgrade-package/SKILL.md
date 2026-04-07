@@ -1,0 +1,707 @@
+---
+name: python-upgrade-package
+description: Use when modernizing a legacy Python package — converting setup.py/setup.cfg/requirements.txt to uv + pyproject.toml, adding pre-commit with ruff (changed-files-only), migrating Travis CI to GitHub Actions, switching test runner to pytest, and cleaning up obsolete files — all step-by-step with one commit per change and minimal diffs
+---
+
+# Python Upgrade Package
+
+## Overview
+
+Step-by-step modernization of legacy Python packages. Each step is confirmed by the user and gets its own git commit. The core principle is **minimal diffs** — never reformat untouched code, never rewrite existing tests, only change what's necessary to modernize the tooling.
+
+## When to Use
+
+- Package uses `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, or `MANIFEST.in`
+- Package uses Travis CI (`.travis.yml`) instead of GitHub Actions
+- Package lacks pre-commit hooks or uses outdated linters (flake8, pylint without ruff)
+- Package uses `unittest` runner, `nose`/`nosetests`, or Django's `manage.py test` directly
+- Any combination of the above — the skill detects what's present and skips what's already modern
+
+**Not for:** Greenfield projects, packages already on uv + pyproject.toml + GitHub Actions + pytest.
+
+## Iron Law
+
+**NEVER reformat or restructure existing source code.** The goal is tooling modernization, not code cleanup. Every diff should be explainable as "changed the build system" or "changed the CI config" — never "reformatted line 42 of models.py."
+
+## Execution Model
+
+```
+For each step:
+  1. Detect whether the step is needed (skip if already done)
+  2. Show the user what will change
+  3. Ask for confirmation via AskUserQuestion
+  4. Execute the changes
+  5. Commit with a descriptive message
+  6. Move to the next step
+```
+
+All steps are independent — if the user skips one, continue to the next.
+
+---
+
+## Step 0: Reconnaissance
+
+Before any changes, gather intel. Read and report:
+
+1. **Packaging format:** Which of setup.py, setup.cfg, requirements.txt, Pipfile, MANIFEST.in exist?
+2. **CI system:** `.travis.yml`? `.github/workflows/`? Both? Neither?
+3. **Test runner:** How are tests invoked? Look for:
+   - `[tool:pytest]` or `[pytest]` in setup.cfg / pyproject.toml → already pytest
+   - `nose` / `nosetests` in setup.cfg, .noserc, nose.cfg, tox.ini, Makefile
+   - `python -m unittest` or `unittest.main()` patterns
+   - `manage.py test` → Django
+   - `tox.ini` — is it only for test running, or does it configure other things?
+4. **Django detection:** Does `manage.py` exist? Is `django` in dependencies?
+5. **Pre-commit:** Does `.pre-commit-config.yaml` exist? What hooks are configured?
+6. **Python version constraints:** What does `python_requires` / `requires-python` say?
+7. **Version management:** How is the package version defined? Look for:
+   - Hardcoded `version = "x.y.z"` in `setup.py`, `setup.cfg`, or `pyproject.toml`
+   - `__version__` in `__init__.py` or `_version.py` (sometimes read by setup.py)
+   - `setuptools-scm` — version derived from git tags (`use_scm_version=True` in setup.py, or `[tool.setuptools_scm]` in pyproject.toml)
+   - `bumpversion` / `bump2version` — `.bumpversion.cfg` or `[tool.bumpversion]`
+   - `bumpver` — `[tool.bumpver]` in pyproject.toml
+   - `versioneer` — `versioneer.py` at repo root, `[tool.versioneer]`
+   - `pbr` — `[pbr]` in setup.cfg
+   - `poetry-dynamic-versioning` or `pdm-backend` dynamic version
+   - Version defined in **multiple places** (e.g., both `setup.py` and `__init__.py`) — flag as a problem
+
+Present findings to the user as a summary table before proceeding.
+
+---
+
+## Step 1: Convert to uv + pyproject.toml
+
+### Detection
+Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py/setup.cfg remain.
+
+### Procedure
+
+1. **Read all metadata sources** in priority order:
+   - `setup.cfg` `[metadata]` and `[options]` sections (most structured)
+   - `setup.py` — parse the `setup()` call arguments
+   - `requirements.txt` — dependencies only
+   - `Pipfile` — dependencies and python version
+   - `MANIFEST.in` — note included data, but pyproject.toml uses `[tool.setuptools.package-data]` instead
+
+2. **Generate `pyproject.toml`** with the following structure:
+   ```toml
+   [build-system]
+   requires = ["setuptools>=75.0"]
+   build-backend = "setuptools.backends._legacy:_Backend"
+
+   [project]
+   name = "<package-name>"
+   version = "<version>"
+   description = "<description>"
+   readme = "README.md"  # or README.rst if that's what exists
+   requires-python = ">=3.10"
+   license = "<from LICENSE file or setup.py>"
+   authors = [{name = "<author>", email = "<email>"}]
+   dependencies = [
+       # from install_requires / requirements.txt
+   ]
+
+   [project.optional-dependencies]
+   dev = [
+       # from extras_require['dev'] or dev-requirements.txt
+   ]
+   ```
+
+   **Important considerations:**
+   - If `setup.py` has dynamic version (reads from `__init__.py`), use `[tool.setuptools.dynamic] version = {attr = "package.__version__"}`
+   - Preserve all entry_points / console_scripts as `[project.scripts]`
+   - Preserve all extras_require as `[project.optional-dependencies]`
+   - If `setup.cfg` had `[options.packages.find]`, translate to `[tool.setuptools.packages.find]`
+
+3. **Initialize uv:**
+   ```bash
+   uv sync
+   ```
+   This creates `uv.lock`.
+
+4. **Update `.gitignore`** — add if not present:
+   ```
+   .venv/
+   uv.lock
+   ```
+
+   **Note:** Whether `uv.lock` should be committed depends on the package type:
+   - **Application:** commit `uv.lock`
+   - **Library:** typically do NOT commit `uv.lock` — add to `.gitignore`
+   - Ask the user if unclear.
+
+5. **Delete obsolete files:**
+   - `setup.py`
+   - `setup.cfg` (only if ALL sections have been migrated — check for `[tool:pytest]`, `[flake8]`, etc. that still need migration in later steps)
+   - `requirements.txt` (and variants like `requirements-dev.txt`)
+   - `MANIFEST.in`
+   - `Pipfile`, `Pipfile.lock`
+
+   **CAUTION with setup.cfg:** If it contains `[tool:pytest]`, `[flake8]`, `[isort]`, or other tool configs, do NOT delete it yet — those sections migrate in later steps. Only delete setup.cfg when it's fully empty of useful config.
+
+6. **Commit:**
+   ```
+   Convert packaging from setup.py/setup.cfg to uv + pyproject.toml
+
+   - Generated pyproject.toml with all metadata from setup.py/setup.cfg
+   - Initialized uv (uv.lock created)
+   - Removed obsolete packaging files: setup.py, setup.cfg, requirements.txt, MANIFEST.in
+   ```
+
+---
+
+## Step 2: Consolidate Version Management
+
+### Detection
+
+Check where the version is currently defined:
+
+1. **Single source, already managed by a tool** (setuptools-scm, bumpver, etc.) → skip this step, already good
+2. **Single source, hardcoded** (e.g., only in `pyproject.toml` `version = "1.2.3"`) → offer to add a version management tool
+3. **Multiple sources** (e.g., `pyproject.toml` AND `__init__.py` AND `setup.py`) → consolidate to one place, then add a tool
+4. **No version found** → ask user what version this is, set it up properly
+
+### Procedure
+
+#### 2a. Identify all version locations
+
+Search for version strings across the project:
+
+```bash
+# Common version locations
+grep -rn "__version__" --include="*.py" .
+grep -n "^version" pyproject.toml setup.cfg setup.py 2>/dev/null
+grep -rn "VERSION" --include="*.py" . | grep -v ".pyc"
+```
+
+Also check for existing version tooling:
+```bash
+# setuptools-scm
+grep -r "setuptools.scm\|setuptools_scm\|use_scm_version" pyproject.toml setup.py setup.cfg 2>/dev/null
+# bumpversion / bump2version
+ls .bumpversion.cfg 2>/dev/null; grep "bumpversion\|bump2version" pyproject.toml setup.cfg 2>/dev/null
+# bumpver
+grep "bumpver" pyproject.toml 2>/dev/null
+# versioneer
+ls versioneer.py 2>/dev/null
+```
+
+#### 2b. Present findings and let user choose
+
+Report what was found and present version management options:
+
+**If a tool is already in use** and working → confirm it's configured correctly in `pyproject.toml` and move on.
+
+**If no tool is in use**, present the options:
+
+| Tool | How it works | Best for |
+|---|---|---|
+| **setuptools-scm** | Derives version from git tags automatically. No version string in source code at all. `git tag v1.2.3` IS the version. | Libraries with regular releases, projects that already use git tags |
+| **bumpver** | Keeps version in one configured location (pyproject.toml, __init__.py, etc.). Bump via `bumpver update --minor`. Can update multiple files from one source of truth. | Projects that want explicit version strings in source, need to bump in multiple files simultaneously |
+| **bump2version** | Legacy but widely used. Config in `.bumpversion.cfg` or `pyproject.toml`. Bumps version and optionally creates git tags. | Projects already using bumpversion that need a maintained fork |
+| **Manual (pyproject.toml only)** | Just keep `version = "x.y.z"` in `pyproject.toml` and nowhere else. No tool. | Very simple packages with infrequent releases |
+
+Ask the user which approach they prefer via AskUserQuestion.
+
+#### 2c. Consolidate to single source
+
+Regardless of tool choice, ensure the version is defined in exactly ONE place:
+
+1. **Remove duplicate version definitions:**
+   - If `__init__.py` has `__version__ = "x.y.z"` AND `pyproject.toml` has `version = "x.y.z"`:
+     - For **setuptools-scm**: remove both — version comes from git tags
+     - For **bumpver**: keep in `pyproject.toml`, configure bumpver to update `__init__.py` too (if the project imports `__version__` somewhere)
+     - For **manual**: keep only in `pyproject.toml`, use `[tool.setuptools.dynamic]` if `__init__.py` needs it at runtime
+
+2. **If the project exposes `__version__` at runtime** (i.e., code does `from mypackage import __version__`):
+   - **setuptools-scm**: add to `pyproject.toml`:
+     ```toml
+     [tool.setuptools_scm]
+     write_to = "src/mypackage/_version.py"
+     ```
+     And in `__init__.py`:
+     ```python
+     from mypackage._version import version as __version__
+     ```
+   - **bumpver**: configure to update `__init__.py`:
+     ```toml
+     [tool.bumpver]
+     current_version = "1.2.3"
+     version_pattern = "MAJOR.MINOR.PATCH"
+
+     [tool.bumpver.file_patterns]
+     "pyproject.toml" = ['version = "{version}"']
+     "src/mypackage/__init__.py" = ['__version__ = "{version}"']
+     ```
+   - **manual**: use dynamic version from attr:
+     ```toml
+     [project]
+     dynamic = ["version"]
+
+     [tool.setuptools.dynamic]
+     version = {attr = "mypackage.__version__"}
+     ```
+
+3. **If the project does NOT expose `__version__` at runtime** — simplest case:
+   - Just set `version = "x.y.z"` in `pyproject.toml` and remove version strings everywhere else
+   - For setuptools-scm, no `write_to` needed
+
+#### 2d. Configure the chosen tool
+
+**setuptools-scm:**
+```toml
+[build-system]
+requires = ["setuptools>=75.0", "setuptools-scm>=8"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+dynamic = ["version"]
+
+[tool.setuptools_scm]
+# optionally: write_to = "src/mypackage/_version.py"
+```
+- Remove hardcoded `version = "..."` from `[project]` — it's now dynamic
+- Ensure the current version has a git tag: `git tag v<current_version>` (ask user to confirm)
+- Add `setuptools-scm` to build-system requires
+
+**bumpver:**
+```toml
+[tool.bumpver]
+current_version = "1.2.3"
+version_pattern = "MAJOR.MINOR.PATCH"
+commit_message = "Bump version {old_version} -> {new_version}"
+commit = true
+tag = true
+push = false
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = ['current_version = "{version}"', 'version = "{version}"']
+```
+- Add `bumpver` to dev dependencies
+
+**bump2version:**
+```toml
+[tool.bumpversion]
+current_version = "1.2.3"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+```
+- Add `bump2version` to dev dependencies
+
+**Manual:**
+- Just ensure `version = "x.y.z"` exists only in `pyproject.toml`
+- Remove from all other files
+
+#### 2e. Clean up obsolete version files
+
+- Delete `versioneer.py` if migrating away from versioneer
+- Delete `.bumpversion.cfg` if migrating to pyproject.toml-based config
+- Remove `[pbr]` section from setup.cfg if migrating away from pbr
+- Remove `version.py` / `_version.py` files that were manually maintained (unless setuptools-scm writes to them)
+
+#### 2f. Commit
+
+```
+Consolidate version management with <chosen tool>
+
+- Version is now defined in <single location>
+- Removed duplicate version definitions from <list of files>
+- Configured <tool> in pyproject.toml
+<- Created git tag v<version> for setuptools-scm (if applicable)>
+```
+
+---
+
+## Step 3: Add pre-commit Configuration
+
+### Detection
+Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
+
+### Procedure
+
+1. **Create `.pre-commit-config.yaml`:**
+   ```yaml
+   repos:
+     - repo: https://github.com/pre-commit/pre-commit-hooks
+       rev: v5.0.0  # check for latest
+       hooks:
+         - id: trailing-whitespace
+         - id: end-of-file-fixer
+         - id: check-yaml
+         - id: check-added-large-files
+         - id: detect-private-key
+
+     - repo: https://github.com/astral-sh/ruff-pre-commit
+       rev: v0.11.0  # check for latest
+       hooks:
+         - id: ruff
+           args: [--fix]
+         - id: ruff-format
+   ```
+
+   **Key point:** pre-commit runs hooks only on staged files by default. This means ruff will only format/lint files the developer is actively changing. Existing code remains untouched.
+
+2. **Add ruff configuration to `pyproject.toml`** (minimal, non-invasive):
+   ```toml
+   [tool.ruff]
+   target-version = "py310"
+
+   [tool.ruff.lint]
+   select = ["E", "F", "W"]  # basic flake8-equivalent rules only
+   # Do NOT enable aggressive rules (I, UP, etc.) — goal is to catch errors, not reformat
+   ```
+
+   **Do NOT** add `[tool.ruff.format]` section — let ruff-format use its defaults. This avoids opinionated formatting config that creates noise.
+
+3. **Do NOT run `pre-commit run --all-files`** — this would reformat existing code and create massive diffs. Only install it:
+   ```bash
+   pre-commit install
+   ```
+
+4. **Migrate flake8/isort config if present:**
+   - If `setup.cfg` has `[flake8]`, migrate relevant settings to `[tool.ruff.lint]`
+   - If `setup.cfg` has `[isort]`, note that ruff's `I` rule handles imports — but do NOT enable it (to avoid reformatting)
+   - If `.flake8` exists, migrate to `[tool.ruff.lint]` and delete `.flake8`
+   - Delete `setup.cfg` now if it's empty after migration
+
+5. **Commit:**
+   ```
+   Add pre-commit hooks with ruff (staged files only)
+
+   - Added .pre-commit-config.yaml with ruff format + lint
+   - Configured ruff with basic flake8-equivalent rules (E, F, W)
+   - Hooks run only on staged files — no existing code reformatted
+   - Added standard hygiene hooks (trailing-whitespace, detect-private-key, etc.)
+   ```
+
+---
+
+## Step 4: Migrate CI from Travis to GitHub Actions
+
+### Detection
+- Skip if no `.travis.yml` exists
+- If `.github/workflows/` already exists with test workflow, ask user whether to replace or keep both
+
+### Procedure
+
+1. **Read `.travis.yml`** and extract:
+   - Python versions in the matrix
+   - Install commands
+   - Test commands
+   - Environment variables
+   - Services (databases, redis, etc.)
+   - Deploy configuration (note but do NOT migrate deploys — too risky, flag for user)
+
+2. **Create `.github/workflows/tests.yml`:**
+   ```yaml
+   name: Tests
+
+   on:
+     push:
+       branches: [master, main]
+     pull_request:
+       branches: [master, main]
+
+   jobs:
+     test:
+       runs-on: ubuntu-latest
+       strategy:
+         matrix:
+           python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Install uv
+           uses: astral-sh/setup-uv@v5
+
+         - name: Set up Python ${{ matrix.python-version }}
+           run: uv python install ${{ matrix.python-version }}
+
+         - name: Install dependencies
+           run: uv sync --all-extras
+
+         - name: Run tests
+           run: uv run pytest
+   ```
+
+   **Adapt based on Travis config:**
+   - If Travis had services (postgres, redis), add corresponding GH Actions service containers
+   - If Travis had environment variables, add them as `env:` in the workflow
+   - If Travis had `before_install` / `before_script` commands, translate to additional steps
+   - If the project is Django, set `DJANGO_SETTINGS_MODULE` in env
+
+   **Deploy steps:** Do NOT migrate Travis deploy config automatically. Instead, add a comment:
+   ```yaml
+   # TODO: Travis deploy configuration was not migrated automatically.
+   # Original Travis deploy config:
+   # <paste relevant section>
+   ```
+   And warn the user explicitly.
+
+3. **Add lint job (informational only):**
+   ```yaml
+     lint:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Install uv
+           uses: astral-sh/setup-uv@v5
+
+         - name: Set up Python
+           run: uv python install 3.13
+
+         - name: Install dependencies
+           run: uv sync --all-extras
+
+         - name: Lint with ruff
+           run: uv run ruff check . || true
+
+         - name: Check formatting with ruff
+           run: uv run ruff format --check . || true
+   ```
+
+   Note the `|| true` — lint is informational only, never blocks CI. This is intentional: we don't want to force reformatting the entire codebase just to get green CI.
+
+4. **Update README badges:**
+   - Find Travis badge: `[![Build Status](https://travis-ci.org/...` or `[![Build Status](https://travis-ci.com/...`
+   - Replace with GitHub Actions badge:
+     ```markdown
+     [![Tests](https://github.com/OWNER/REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/tests.yml)
+     ```
+   - Detect OWNER/REPO from git remote or Travis badge URL
+
+5. **Delete `.travis.yml`**
+
+6. **Commit:**
+   ```
+   Migrate CI from Travis CI to GitHub Actions
+
+   - Created .github/workflows/tests.yml with Python 3.10-3.13 matrix
+   - Using uv for dependency installation
+   - Added informational-only ruff lint job (non-blocking)
+   - Removed .travis.yml
+   - Updated README CI badge
+   ```
+
+---
+
+## Step 5: Convert Test Runner to pytest
+
+### Detection
+- Skip if `pytest` is already the configured test runner (check pyproject.toml `[tool.pytest]`, or if pytest is in dependencies and no other runner is configured)
+- Detect current runner: unittest, nose, Django manage.py test
+
+### Procedure
+
+1. **Add pytest to dependencies:**
+   ```toml
+   # In pyproject.toml [project.optional-dependencies]
+   dev = [
+       "pytest",
+       # If Django project:
+       "pytest-django",
+   ]
+   ```
+   Then run `uv sync`.
+
+2. **Add pytest configuration to `pyproject.toml`:**
+   ```toml
+   [tool.pytest.ini_options]
+   # If Django:
+   DJANGO_SETTINGS_MODULE = "<detected settings module>"
+   ```
+
+   **Detect Django settings module** from:
+   - `manage.py` — look for `os.environ.setdefault('DJANGO_SETTINGS_MODULE', '...')`
+   - `.travis.yml` env vars
+   - `tox.ini` setenv
+
+3. **Handle nose migration:**
+   - If `nose.cfg` or `.noserc` exists, check for any pytest-relevant settings (test paths, plugins) and migrate to `[tool.pytest.ini_options]`
+   - Delete `nose.cfg`, `.noserc`
+   - Remove `nose` / `nosetests` from dependencies
+   - If `tox.ini` only contains `[nosetests]` or `[tox]` with `commands = nosetests`, delete `tox.ini`
+   - Check for `from nose.tools import ...` imports in tests — flag these for the user but do NOT rewrite them (pytest can run nose-style tests)
+
+4. **Handle unittest migration:**
+   - Remove `unittest.main()` calls from test files — but ONLY the `if __name__ == '__main__': unittest.main()` block at the bottom, nothing else
+   - Do NOT convert `TestCase` classes to functions
+   - Do NOT rewrite `self.assertEqual` to `assert`
+   - pytest runs unittest-style tests natively — the only change needed is the runner
+
+5. **Handle Django migration:**
+   - Add `pytest-django` to dev dependencies
+   - Create `conftest.py` at project root (if it doesn't exist) with:
+     ```python
+     import django
+     from django.conf import settings
+
+     django_settings_module = "<detected>"
+
+     def pytest_configure(config):
+         settings.DJANGO_SETTINGS_MODULE = django_settings_module
+         django.setup()
+     ```
+   - Or use the simpler `pyproject.toml` approach:
+     ```toml
+     [tool.pytest.ini_options]
+     DJANGO_SETTINGS_MODULE = "<detected>"
+     ```
+
+6. **Handle tox.ini:**
+   - If `tox.ini` only served as test config (no other envs beyond default), delete it
+   - If it has multiple envs or other config, leave it but note it for the user
+   - Migrate any `[pytest]` section from `tox.ini` to `pyproject.toml`
+
+7. **Verify tests still pass:**
+   ```bash
+   uv run pytest
+   ```
+   Report results to the user. If tests fail, investigate — common issues:
+   - Missing `conftest.py` for Django
+   - nose-specific plugins not available
+   - Test discovery path differences (pytest uses `test_*.py`, nose uses `test*.py`)
+
+8. **Commit:**
+   ```
+   Switch test runner to pytest
+
+   - Added pytest to dev dependencies
+   - Added pytest configuration to pyproject.toml
+   - Removed <nose.cfg / .noserc / tox.ini / unittest.main() blocks> (whichever applies)
+   - Tests verified passing with pytest
+   ```
+
+---
+
+## Step 6: Final Cleanup
+
+### Procedure
+
+1. **Update `.gitignore`** — ensure these patterns are present:
+   ```
+   # Python
+   __pycache__/
+   *.py[cod]
+   *$py.class
+   *.egg-info/
+   dist/
+   build/
+   .eggs/
+   *.egg
+
+   # Virtual environments
+   .venv/
+   venv/
+   ENV/
+
+   # IDE
+   .idea/
+   .vscode/
+   *.swp
+   *.swo
+
+   # Testing
+   .pytest_cache/
+   .coverage
+   htmlcov/
+   .tox/
+
+   # Distribution
+   *.tar.gz
+   *.whl
+   ```
+
+   Only ADD missing patterns — never remove existing ones.
+
+2. **Update README badges** (if not already done in Step 3):
+   - Python version badge: `![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue)`
+   - CI badge (if GitHub Actions was set up)
+
+3. **Final check — are any obsolete files still around?**
+   - `setup.py`, `setup.cfg` (should be gone after Steps 1-3)
+   - `.travis.yml` (should be gone after Step 4)
+   - `nose.cfg`, `.noserc` (should be gone after Step 5)
+   - `.bumpversion.cfg`, `versioneer.py` (should be gone after Step 2)
+   - `tox.ini` (if fully migrated)
+   - `.flake8`, `.isort.cfg` (if migrated to ruff)
+   - `Makefile` entries referencing old tools — flag but don't auto-edit
+
+4. **Commit:**
+   ```
+   Clean up: update .gitignore and README badges
+
+   - Added modern Python .gitignore patterns
+   - Updated README badges for Python versions and CI
+   ```
+
+---
+
+## Summary Report
+
+After all steps, present a summary:
+
+```
+Package Upgrade Summary — <package-name>
+========================================
+
+Step 1: Packaging     [DONE / SKIPPED / FAILED]
+  setup.py → pyproject.toml + uv
+
+Step 2: Versioning    [DONE / SKIPPED / FAILED]
+  Consolidated to <single source> with <tool>
+
+Step 3: Pre-commit    [DONE / SKIPPED / FAILED]
+  Added ruff (staged files only) + hygiene hooks
+
+Step 4: CI            [DONE / SKIPPED / FAILED]
+  Travis CI → GitHub Actions (Python 3.10-3.13)
+
+Step 5: Test runner   [DONE / SKIPPED / FAILED]
+  <old runner> → pytest
+
+Step 6: Cleanup       [DONE / SKIPPED / FAILED]
+  .gitignore + README badges
+
+Files deleted: <list>
+Files created: <list>
+Files modified: <list>
+Commits created: <count>
+
+⚠ Manual follow-up needed:
+  - <any deploy config not migrated>
+  - <any nose.tools imports in tests>
+  - <any other flagged items>
+```
+
+## Common Mistakes
+
+| Mistake | Prevention |
+|---|---|
+| Running `pre-commit run --all-files` | NEVER do this — it reformats all code, violating the minimal-diff principle |
+| Rewriting `self.assertEqual` to `assert` | Runner switch only — pytest runs unittest tests natively |
+| Enabling aggressive ruff rules (I, UP, B, etc.) | Stick to E, F, W — error detection, not style enforcement |
+| Deleting `setup.cfg` before migrating `[tool:pytest]` | Check ALL sections are migrated before deleting |
+| Hardcoding Django settings module | Always detect from manage.py or existing config |
+| Committing everything in one big commit | One commit per step — easier to review and revert |
+| Migrating Travis deploy config automatically | Too risky — flag for user, don't auto-migrate |
+| Adding `uv.lock` to git for a library | Ask the user — libraries typically .gitignore it |
+| Leaving version defined in multiple places | Grep for `__version__` and `version =` — consolidate to one source |
+| Setting up setuptools-scm without a git tag | The current version MUST have a tag, or setuptools-scm will generate `0.0.0` |
+| Choosing a version tool without asking the user | Always present options and let user decide |
+
+## Red Flags — STOP
+
+- "Let me just quickly reformat this file while I'm here" — **NO.** Minimal diffs.
+- "These unittest tests would be cleaner as pytest functions" — **NO.** Runner switch only.
+- "I'll enable more ruff rules for better code quality" — **NO.** E, F, W only.
+- "I'll skip the user confirmation, it's obvious" — **NO.** Every step needs confirmation.
+- "The deploy config is simple, I'll migrate it too" — **NO.** Flag it, don't touch it.
+- "I'll run the formatter once to establish a baseline" — **NO.** That's a massive diff on existing code.
