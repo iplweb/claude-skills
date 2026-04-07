@@ -1,0 +1,11 @@
+{
+  "name": "python-upgrade-package",
+  "description": "Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration",
+  "version": "1.0.0",
+  "author": {
+    "name": "Michal Pasternak"
+  },
+  "repository": "https://github.com/iplweb/claude-skills",
+  "license": "MIT",
+  "keywords": ["python", "packaging", "modernization", "uv", "pyproject", "pytest"]
+}
