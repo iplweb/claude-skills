@@ -60,7 +60,7 @@ gh run list --branch "$BRANCH" --limit 5 --json databaseId,status,conclusion,nam
 Are there any runs?
 ├── NO runs at all
 │   └── Are there any workflow files in .github/workflows/?
-│       ├── NO → Suggest using python-upgrade-package skill or offer to create
+│       ├── NO → Suggest using `/python-upgrade-package:python-upgrade-package` skill or offer to create
 │       │         a basic workflow. Ask user what to do.
 │       └── YES → The workflow may not trigger on this branch.
 │                  Check workflow `on:` triggers. Report and suggest fix.

@@ -14,8 +14,8 @@ Analyzes and improves a Python project's README. Reads existing content, identif
 - README is outdated, incomplete, or missing key sections
 - README is in RST format and should be Markdown
 - README lacks badges, install instructions, or version support info
-- After running `python-upgrade-package` — the README likely needs updating to match new tooling
-- Before publishing a package (complements `oss-github-publisher` audit)
+- After running `/python-upgrade-package:python-upgrade-package` — the README likely needs updating to match new tooling
+- Before publishing a package (complements `/oss-github-publisher:oss-github-publisher` audit)
 
 **Not for:** Non-Python projects, generating documentation sites, writing full user guides.
 
