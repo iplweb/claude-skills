@@ -10,6 +10,7 @@ A collection of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sk
 | [github-build-fixer](plugins/github-build-fixer/) | Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green |
 | [oss-github-publisher](plugins/oss-github-publisher/) | Pre-flight audit before publishing a repo as open source — checks LICENSE, CI, pre-commit, scans for secrets and PII |
 | [premortem](plugins/premortem/) | Klein-style premortem on plans, launches, hires, pricing, or strategy — assumes failure 6 months out and works backward to expose blind spots |
+| [premortem-multiple](plugins/premortem-multiple/) | Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into one unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan |
 | [python-upgrade-package](plugins/python-upgrade-package/) | Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration |
 | [readme-guardian](plugins/readme-guardian/) | Analyzes and improves Python project READMEs — badges, install instructions, version support matrix |
 
@@ -30,6 +31,7 @@ In Claude Code, run:
 /plugin install github-build-fixer@iplweb-claude-skills
 /plugin install oss-github-publisher@iplweb-claude-skills
 /plugin install premortem@iplweb-claude-skills
+/plugin install premortem-multiple@iplweb-claude-skills
 /plugin install python-upgrade-package@iplweb-claude-skills
 /plugin install readme-guardian@iplweb-claude-skills
 ```
@@ -47,6 +49,10 @@ Once installed, skills activate automatically based on context, or you can invok
 - `/github-build-fixer:github-build-fixer` — when CI is failing on your branch
 - `/oss-github-publisher:oss-github-publisher` — before publishing a repo as open source
 - `/premortem:premortem` — to stress-test a plan, launch, or decision by imagining it has already failed
+- `/premortem-multiple:premortem-multiple` — three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into a single unified document
+  - `/premortem-multiple:premortem-codex` — only codex
+  - `/premortem-multiple:premortem-opencode` — only opencode
+  - `/premortem-multiple:premortem-claude` — only a Claude subagent
 - `/python-upgrade-package:python-upgrade-package` — to modernize a legacy Python package
 - `/readme-guardian:readme-guardian` — to improve a project's README
 

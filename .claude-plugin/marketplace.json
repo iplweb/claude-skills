@@ -43,6 +43,15 @@
       }
     },
     {
+      "name": "premortem-multiple",
+      "source": "./plugins/premortem-multiple",
+      "description": "Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into a single unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan. Includes individual skills for each reviewer.",
+      "version": "2026.05.0",
+      "author": {
+        "name": "Michal Pasternak"
+      }
+    },
+    {
       "name": "python-upgrade-package",
       "source": "./plugins/python-upgrade-package",
       "description": "Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration",
