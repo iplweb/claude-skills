@@ -69,6 +69,85 @@ All four `code-review-external` skills accept the same positional argument and a
 
 Reviews are saved to `/tmp/code-review-{codex,opencode,claude}-<timestamp>.md` and printed side-by-side. The `code-review-external` wrapper requires both `codex` and `opencode` CLIs on `$PATH`; the individual sub-skills only require their own tool. For GitHub PR review use the official `/code-review:code-review` skill instead — it has a multi-agent pipeline with confidence scoring and posts the comment back to the PR.
 
+## Using with Codex
+
+These skill folders can be used directly with Codex because each one contains a `SKILL.md` file. Codex discovers user-installed skills from `$CODEX_HOME/skills`; if `CODEX_HOME` is not set, that defaults to `~/.codex/skills`.
+
+Symlink the skill you want into Codex's skills directory:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/plugins/<plugin>/skills/<skill-name>" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/<skill-name>"
+```
+
+For example:
+
+```bash
+ln -s "$(pwd)/plugins/readme-guardian/skills/readme-guardian" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/readme-guardian"
+```
+
+### Quick setup (all skills, global)
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+for dir in plugins/*/skills/*/; do
+  skill=$(basename "$dir")
+  ln -sfn "$(pwd)/$dir" "${CODEX_HOME:-$HOME/.codex}/skills/$skill"
+done
+```
+
+Restart Codex after linking so it reloads the skill metadata.
+
+Once installed, invoke a skill by naming it in your prompt, for example:
+
+```text
+Use the readme-guardian skill to improve this project's README.
+Use the python-upgrade-package skill to modernize this package.
+```
+
+In Codex interfaces that support explicit skill mentions, you can also reference the skill directly, for example `$readme-guardian`.
+
+The Claude Code slash-command forms above, such as `/readme-guardian:readme-guardian`, are Claude Code commands. In Codex, use natural-language skill names or explicit skill mentions instead.
+
+## Using with OpenCode
+
+These skills also work with [OpenCode](https://opencode.ai). OpenCode discovers skills from specific directories — symlink each skill folder into a discoverable location:
+
+```bash
+# Global (available in all projects)
+ln -s "$(pwd)/plugins/<plugin>/skills/<skill-name>" \
+  ~/.config/opencode/skills/<skill-name>
+
+# Or per-project
+ln -s "$(pwd)/plugins/<plugin>/skills/<skill-name>" \
+  .opencode/skills/<skill-name>
+```
+
+OpenCode scans these paths for `SKILL.md` files:
+
+| Location | Scope |
+|----------|-------|
+| `.opencode/skills/<name>/SKILL.md` | Project |
+| `~/.config/opencode/skills/<name>/SKILL.md` | Global |
+| `.claude/skills/<name>/SKILL.md` | Project (Claude-compatible) |
+| `~/.claude/skills/<name>/SKILL.md` | Global (Claude-compatible) |
+| `.agents/skills/<name>/SKILL.md` | Project |
+| `~/.agents/skills/<name>/SKILL.md` | Global |
+
+### Quick setup (all skills, global)
+
+```bash
+mkdir -p ~/.config/opencode/skills
+for dir in plugins/*/skills/*/; do
+  skill=$(basename "$dir")
+  ln -sf "$(pwd)/$dir" ~/.config/opencode/skills/"$skill"
+done
+```
+
+After linking, OpenCode will list the skills in the `skill` tool and agents can load them on demand. See the [OpenCode skills docs](https://opencode.ai/docs/skills/) for details.
+
 ## Versioning
 
 This marketplace uses [CalVer](https://calver.org/) — `YYYY.0M.MICRO` (e.g. `2026.05.0`, `2026.05.1`, `2026.06.0`).
