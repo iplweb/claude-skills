@@ -1,6 +1,6 @@
 ---
 name: premortem-multiple
-description: Użyj, gdy user chce trzy niezależne premortemy na ten sam plan — codex, opencode i subagent Claude'a równolegle, a potem JEDEN zsyntezowany dokument zamiast trzech surowych. Skill zbiera kontekst planu (CO/KTO/SUKCES), ustawia frame ("plan padł 6 miesięcy w przyszłości"), uruchamia trzy premortemy naraz, a po ich zwrocie robi META-syntezę: konsensus (co wszyscy trzej widzieli), rozbieżności (co widział tylko jeden — często najcenniejsze), wspólne ukryte założenia, najbardziej groźna porażka, ujednolicona rewizja planu i checklist. Wywołuj zawsze, gdy user prosi o "premortem multiple", "trzy premortemy", "premortem przez wszystkich", "/premortem-multiple", albo o premortem z syntezą wielu opinii. Dla pojedynczego premortemu używaj `/premortem:premortem`. Dla pojedynczego external CLI — `/premortem-codex`, `/premortem-opencode`, `/premortem-claude`.
+description: Użyj, gdy user chce trzy niezależne premortemy na ten sam plan — codex, opencode i subagent Claude'a równolegle, a potem JEDEN zsyntezowany dokument zamiast trzech surowych. Skill zbiera kontekst planu (CO/KTO/SUKCES), ustawia frame ("plan padł 6 miesięcy w przyszłości"), uruchamia trzy premortemy w tle, czeka aż wszystkie skończą, a po komplecie robi META-syntezę: konsensus (co wszyscy trzej widzieli), rozbieżności (co widział tylko jeden — często najcenniejsze), wspólne ukryte założenia, najbardziej groźna porażka, ujednolicona rewizja planu i checklist. Wywołuj zawsze, gdy user prosi o "premortem multiple", "trzy premortemy", "premortem przez wszystkich", "/premortem-multiple", albo o premortem z syntezą wielu opinii. Dla pojedynczego premortemu używaj `/premortem:premortem`. Dla pojedynczego external CLI — `/premortem-codex`, `/premortem-opencode`, `/premortem-claude`.
 ---
 
 # Premortem multiple — trzy premortemy + synteza
@@ -36,28 +36,36 @@ Brak któregoś z dwóch CLI → **zatrzymaj się** i powiedz userowi co
 zainstalować. Nie kontynuuj z dwoma — sens skilla = trzy niezależne
 opinie. Jeśli user chce tylko 2 z 3, niech użyje pojedynczych skilli.
 
-## Architektura
+## Architektura (background dispatch → wait → meta-synteza)
+
+Trzy premortemy uruchamiamy **w tle**, główny agent czeka na każdego
+przez `TaskOutput` (block: true), dopiero po komplecie idzie do
+meta-syntezy. Background pozwala świadomie reagować jeśli któreś
+narzędzie utknie (np. opencode bywa kapryśny) — zamiast blokować
+całość, możesz pokazać 2 z 3 i zapytać usera czy czekać dłużej.
 
 ```dot
 digraph flow {
   "Krok 1: zbierz kontekst (CO/KTO/SUKCES)" [shape=box];
   "Krok 2: ustaw frame (juz padl)" [shape=box];
-  "Krok 3a: codex premortem" [shape=box];
-  "Krok 3b: opencode premortem" [shape=box];
-  "Krok 3c: claude subagent premortem" [shape=box];
-  "Krok 3c.5: Write claude output do pliku" [shape=box];
+  "Krok 3a: codex premortem (bg)" [shape=box];
+  "Krok 3b: opencode premortem (bg)" [shape=box];
+  "Krok 3c: claude subagent premortem (async)" [shape=box];
+  "Krok 3.5: TaskOutput x3 - czekaj" [shape=box];
+  "Krok 3.6: Write claude output do pliku" [shape=box];
   "Krok 4: meta-synteza" [shape=box];
   "Krok 5: zapis raportu + transkryptu" [shape=box];
   "Krok 6: pokaz userowi" [shape=box];
 
   "Krok 1: zbierz kontekst (CO/KTO/SUKCES)" -> "Krok 2: ustaw frame (juz padl)";
-  "Krok 2: ustaw frame (juz padl)" -> "Krok 3a: codex premortem" [label="rownolegle"];
-  "Krok 2: ustaw frame (juz padl)" -> "Krok 3b: opencode premortem" [label="rownolegle"];
-  "Krok 2: ustaw frame (juz padl)" -> "Krok 3c: claude subagent premortem" [label="rownolegle"];
-  "Krok 3c: claude subagent premortem" -> "Krok 3c.5: Write claude output do pliku";
-  "Krok 3a: codex premortem" -> "Krok 4: meta-synteza";
-  "Krok 3b: opencode premortem" -> "Krok 4: meta-synteza";
-  "Krok 3c.5: Write claude output do pliku" -> "Krok 4: meta-synteza";
+  "Krok 2: ustaw frame (juz padl)" -> "Krok 3a: codex premortem (bg)" [label="rownolegle"];
+  "Krok 2: ustaw frame (juz padl)" -> "Krok 3b: opencode premortem (bg)" [label="rownolegle"];
+  "Krok 2: ustaw frame (juz padl)" -> "Krok 3c: claude subagent premortem (async)" [label="rownolegle"];
+  "Krok 3a: codex premortem (bg)" -> "Krok 3.5: TaskOutput x3 - czekaj";
+  "Krok 3b: opencode premortem (bg)" -> "Krok 3.5: TaskOutput x3 - czekaj";
+  "Krok 3c: claude subagent premortem (async)" -> "Krok 3.5: TaskOutput x3 - czekaj";
+  "Krok 3.5: TaskOutput x3 - czekaj" -> "Krok 3.6: Write claude output do pliku";
+  "Krok 3.6: Write claude output do pliku" -> "Krok 4: meta-synteza";
   "Krok 4: meta-synteza" -> "Krok 5: zapis raportu + transkryptu";
   "Krok 5: zapis raportu + transkryptu" -> "Krok 6: pokaz userowi";
 }
@@ -101,11 +109,12 @@ To NIE jest ozdobnik. To psychologiczny mechanizm który zamienia
 (uczciwe powody). Bez tego wszyscy trzej zaczynają lecieć grzecznym
 risk assessmentem. **Nie pomijaj.**
 
-## Krok 3 — Trzy równoległe premortemy
+## Krok 3 — Trzy równoległe premortemy w tle
 
-**Wszystkie trzy w jednej wiadomości.** Tool calls w tym samym
-message bloku = równoległe wykonanie. Każdy do osobnego pliku z tym
-samym timestampem.
+**Wszystkie trzy w jednej wiadomości**, każdy w trybie background.
+Tool calls w tym samym message bloku startują równolegle — w trybie
+bg każdy zwraca task ID natychmiast i nie blokuje głównego agenta.
+Czekanie na wyniki idzie osobno w kroku 3.5 przez `TaskOutput`.
 
 ### Krok 3.0 — Ustal nazwy plików (jeden timestamp)
 
@@ -120,65 +129,101 @@ Zapamiętaj `$TS` — przekazujesz go do każdego z trzech wywołań,
 żeby później sparować trójkę plików tego samego runa. Wrapper również
 go używa do nazwy raportu i transkryptu.
 
-### Krok 3.1 — Trzy tool calls w jednym message
+### Krok 3.1 — Trzy background tool calls w jednym message
 
-W **jednej** wiadomości:
+W **jednej** wiadomości — wszystkie trzy uruchamiają się w trybie
+artifact-file (każde narzędzie samo pisze finalny premortem do
+wskazanego pliku przez swój write tool, my czytamy potem czysty
+plik):
 
-1. **`Bash`** (codex):
-   - Komenda dosłownie z `premortem-codex`, sekcja "Komenda".
-   - Eksportuj `PREMORTEM_TS=$TS` przed wywołaniem żeby skill użył
-     tego samego stampa: `PREMORTEM_TS=$TS codex exec "..."`.
+1. **`Bash`** (codex), `run_in_background: true`:
+   - Komenda zgodnie z `premortem-codex` — **artifact file pattern**:
+     codex pisze raport do `$CODEX_OUT` przez write tool, stdout
+     do `/tmp/premortem-codex-$TS.log`.
+   - Eksportuj `PREMORTEM_TS=$TS` żeby skill użył tego samego stampa:
+     `PREMORTEM_TS=$TS codex exec "..."`.
    - W prompt wstaw kontekst planu z kroku 1 (CO/KTO/SUKCES) +
-     prompt premortem z `premortem-codex`, sekcja "Standardowy
-     prompt premortem (do wklejenia)".
-   - `2>&1 | tee "$CODEX_OUT"`, timeout `600000` ms.
+     prompt premortem + **dyrektywę zapisu** wskazującą `$CODEX_OUT`.
+   - `> "$RUN_LOG" 2>&1` (NIE `tee`), timeout `600000` ms.
    - description: `premortem codex`.
+   - **Zapamiętaj zwrócony `task_id`.**
 
-2. **`Bash`** (opencode):
-   - Analogicznie, komenda z `premortem-opencode`.
-   - Ten sam kontekst planu + ten sam prompt premortem.
-   - `2>&1 | tee "$OPENCODE_OUT"`, timeout `600000` ms.
+2. **`Bash`** (opencode), `run_in_background: true`:
+   - Komenda zgodnie z `premortem-opencode` — **artifact file +
+     tymczasowy project-local `.opencode/opencode.json` + trap
+     cleanup**.
+   - Restrykcyjny config: `read/glob/grep/bash` deny, edit allow
+     tylko dla `/tmp/premortem-*`. Premortem nie czyta projektu,
+     więc deny nie boli.
+   - Ten sam kontekst planu + prompt premortem + dyrektywa zapisu
+     wskazująca `$OPENCODE_OUT`.
+   - `--dir "$PROJECT_ROOT"`, `> "$RUN_LOG" 2>&1`, timeout `600000` ms.
    - description: `premortem opencode`.
+   - **Zapamiętaj `task_id`.**
 
-3. **`Agent`** (claude):
+3. **`Agent`** (claude) — domyślnie zwraca async task:
    - `subagent_type: "general-purpose"`.
    - `description: "Premortem (claude)"`.
    - `prompt`: pełny prompt z `premortem-claude`, sekcja "Prompt
-     subagenta", z wstawionym kontekstem planu **oraz** linijką
-     `TIMESTAMP: <TS>` żeby subagent wiedział jak wrapper nazwie plik.
-   - **Subagent nie zapisuje pliku.** Po zwrocie tekstu, w **następnej**
-     wiadomości użyj `Write` żeby zapisać do `$CLAUDE_OUT` 1:1 to co
-     zwrócił.
+     subagenta", z wstawionym kontekstem planu **oraz** dyrektywą
+     żeby subagent **napisał raport wprost do `$CLAUDE_OUT` przez
+     Write tool** (zamiast zwracać tekst). Konsystentnie z codex/
+     opencode — czytamy potem tylko plik.
+   - **Zapamiętaj zwrócony `agentId`.**
 
-Trzy tool calls w jednym message = wszystko startuje jednocześnie,
-czekasz aż ostatni skończy.
+Po dispatchu masz 3 task IDs i wracasz do głównej kontroli —
+nic nie blokuje.
 
-### Krok 3.2 — Po zwrocie agentów
+### Krok 3.5 — Czekaj na wszystkie trzy przez `TaskOutput`
 
-1. **Zapisz claude output** do `$CLAUDE_OUT` przez `Write` (Bash-e
-   już zapisały swoje przez `tee`).
-2. **Sprawdź wszystkie trzy pliki nieempty.** Pusty plik = padło,
-   patrz "Co jeśli któreś padło" niżej.
+Sekwencyjnie wywołaj `TaskOutput` dla każdego z trzech task ID
+z `block: true` i `timeout: 600000` (10 min na sztukę). Każde
+wywołanie blokuje aż dany task się skończy albo timeout wybije.
+Ponieważ wszystkie trzy uruchomiły się równolegle, łączny czas
+oczekiwania = max(t1, t2, t3), nie suma.
+
+`TaskOutput` zwróci status `completed` lub `failed`. Sam result
+text-u nie potrzebujemy — premortem jest w plikach `$CODEX_OUT`,
+`$OPENCODE_OUT`, `$CLAUDE_OUT`.
+
+Jeśli `TaskOutput` zwróci status `running` po 600s — task wisi,
+patrz "Co jeśli któreś padło / wisi" niżej.
+
+### Krok 3.6 — Walidacja plików
+
+```bash
+for f in $CODEX_OUT $OPENCODE_OUT $CLAUDE_OUT; do
+  [ -f "$f" ] || { echo "MISSING: $f"; continue; }
+  SIZE=$(wc -c < "$f")
+  echo "$f: ${SIZE}B"
+done
+```
+
+Pusty (<200 B) lub brak = narzędzie padło lub zignorowało dyrektywę
+zapisu. `tail -50 /tmp/premortem-X-$TS.log` pokaże dlaczego. Patrz
+"Co jeśli któreś padło / wisi" niżej.
 
 ## Krok 4 — Meta-synteza (sens tego skilla)
 
 Tu jest cała wartość ponad trzema pojedynczymi premortemami. Czytasz
 wszystkie trzy outputy i robisz **analizę krzyżową**.
 
-**Czytaj plików:**
+**Czytaj pliki przez `Read`:**
 
-```bash
-cat $CODEX_OUT
-cat $OPENCODE_OUT
-cat $CLAUDE_OUT
+Pliki są **już czyste** — leaf skille (`premortem-codex`,
+`premortem-opencode`, `premortem-claude`) używają artifact-file
+pattern, więc każde narzędzie pisze prosto do `$X_OUT` przez
+swój write tool. Nie ma bannerów, nie ma reasoning, nie ma
+"Thinking..." — to czysty markdown 2-5 KB każdy.
+
+```
+Read $CODEX_OUT
+Read $OPENCODE_OUT
+Read $CLAUDE_OUT
 ```
 
-(albo użyj `Read` dla każdego — bardziej kontrolowanie nad częściami
-output, jeśli pliki duże).
-
-**Przy czytaniu codex/opencode**: pomiń banner ASCII, "Thinking...",
-logi postępu — zacznij od pierwszego `##` markdown nagłówka. Surowe
-pliki zostaną w transkrypcie, więc nie ma potrzeby ich edytować.
+Verbose logi (`/tmp/premortem-X-$TS.log`) zostawiamy w spokoju —
+służą tylko do debugowania kiedy plik review jest pusty/uszkodzony.
 
 ### Co zsyntezować
 
@@ -362,13 +407,18 @@ W chacie pokaż **streszczenie 4-zdaniowe** (nie pełny raport):
 
 Pełny raport user otworzy sobie sam — chat pokaże tylko esencję.
 
-## Co jeśli któreś narzędzie padło
+## Co jeśli któreś narzędzie padło / wisi
 
 - **Codex** zwrócił non-zero / pusty plik → pokaż meta-syntezę z
   pozostałych dwóch (ale **wprost** napisz w raporcie: "codex padł,
   synteza z 2 z 3"). Dodaj sekcję `⚠️ codex padł — ostatnie linie
   $CODEX_OUT:` z `tail -10 $CODEX_OUT`.
 - Analogicznie opencode i claude.
+- **`TaskOutput` zwrócił status `running` po timeoucie 600s** —
+  task wisi. Pokaż userowi co masz (2 outputy + komunikat
+  "X-narzędzie wisi N min, ostatnia aktywność: ..."). **Nie zabijaj
+  procesu samodzielnie**, zapytaj usera czy czekać dłużej, czy
+  jechać dalej z 2 z 3, czy zrezygnować z całości.
 - **Padło 2/3 albo 3/3** → nie udawaj syntezy z jednego agenta. Synteza
   z jednego = zwykły premortem, w którym wartość multi-agent zniknęła.
   Powiedz userowi wprost co padło, pokaż ostatnie linie wyjść,
@@ -377,15 +427,37 @@ Pełny raport user otworzy sobie sam — chat pokaże tylko esencję.
 
 ## Częste pomyłki
 
+- **Stary wzorzec `tee` zamiast artifact file.** Już nie używamy.
+  Leaf skille (codex/opencode/claude) same piszą finalny premortem
+  do swojego `$X_OUT` przez write tool. Wrapper czyta tylko czyste
+  pliki. To eliminuje banner ASCII, reasoning, logi postępu w
+  kontekście Claude'a (50+ KB śmieci → 2-5 KB markdownu).
+- **Pominięcie dyrektywy zapisu w prompcie.** Bez niej narzędzie
+  zwróci premortem na stdout, plik `$X_OUT` nie powstanie. Każdy
+  z trzech promptów MUSI zawierać dyrektywę "zapisz do `$X_OUT`
+  przez write tool".
+- **Pominięcie tymczasowego config opencode + trap cleanup.**
+  opencode w non-TTY blokuje się na permission asks — bez
+  project-local config wisi 60+ min bez output. Patrz `premortem-opencode`,
+  sekcja "Wrapper bash".
+- **Foreground zamiast background.** Bez `run_in_background: true`
+  Bash blokuje głównego agenta na czas najdłuższego z trzech.
 - **Sekwencyjne odpalenie zamiast równoległego.** Trzy tool calls
-  MUSZĄ być w jednym message bloku. Inaczej 3× czas zamiast 1×.
+  MUSZĄ być w jednym message bloku — wtedy startują razem. Sam
+  fakt że są w trybie bg nie czyni ich równoległymi jeśli zostaną
+  rozdzielone między message bloki.
+- **Sekwencyjne `TaskOutput` z błędnym założeniem że to opóźnia.**
+  `TaskOutput(codex)` blokuje tylko na codex, ale codex i tak
+  pracuje równolegle z opencode i claude. Łączny czas oczekiwania
+  = max z trzech, nie suma. Sekwencyjność jest tu OK i prostsza.
 - **Różne timestampy w nazwach plików.** Wygeneruj `$TS` raz, podstaw
   wszędzie (eksportuj `PREMORTEM_TS=$TS` do Bash-ów, dopisz
   `TIMESTAMP: $TS` do prompta agenta). Pięć plików tego samego runa
   ma mieć ten sam stamp.
-- **Pominięcie `Write` po `Agent` dispatch.** Bash-e zapisują przez
-  `tee`, ale `Agent` zwraca tylko tekst. Bez `Write` plik
-  `$CLAUDE_OUT` nie powstanie i meta-synteza będzie miała 2 z 3.
+- **Brak dyrektywy zapisu w prompcie subagenta Claude'a.**
+  W nowym wzorcu prompt subagenta każe **napisać premortem wprost
+  do `$CLAUDE_OUT` przez Write tool** zamiast zwracać tekst.
+  Wtedy konsystentnie z codex/opencode czytamy tylko plik.
 - **Pominięcie meta-syntezy.** Sens skilla = synteza, nie 3 surówki
   obok siebie (od tego jest `code-review-external` style — 3 obok
   siebie). Tu user dostaje **jeden** dokument. Brak meta-syntezy =
@@ -412,3 +484,9 @@ Pełny raport user otworzy sobie sam — chat pokaże tylko esencję.
 - **Try-fix-retry samodzielnie.** Jeśli któreś z 3 padło i nie wiesz
   czemu — zatrzymaj się, pokaż userowi `tail -20` ich pliku, niech
   zdecyduje. Nie zgaduj retry.
+- **Wieczne czekanie na wiszący proces.** Jeśli `TaskOutput`
+  z timeoutem 600s nadal zwraca `running`, decyzja należy do
+  usera, nie do Ciebie. Pokaż co masz, zapytaj.
+- **Próba zabicia procesu samodzielnie (`pkill`, `kill`).** User
+  może chcieć debugować czemu wisi. Zatrzymaj się i zapytaj
+  zanim cokolwiek ubijesz.
