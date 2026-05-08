@@ -325,6 +325,9 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
 ### Procedure
 
 1. **Create `.pre-commit-config.yaml`:**
+
+   Base config with hygiene + ruff:
+
    ```yaml
    repos:
      - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -344,7 +347,32 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
          - id: ruff-format
    ```
 
-   **Key point:** pre-commit runs hooks only on staged files by default. This means ruff will only format/lint files the developer is actively changing. Existing code remains untouched.
+   **Add `pyupgrade`** (always — modernizes Python syntax to the project's minimum):
+   ```yaml
+     - repo: https://github.com/asottile/pyupgrade
+       rev: v3.20.0  # check for latest
+       hooks:
+         - id: pyupgrade
+           args: [--py310-plus]  # ← derive from requires-python (lowest supported), see below
+   ```
+
+   **For Django projects, also add `django-upgrade`** (skip this block on non-Django projects):
+   ```yaml
+     - repo: https://github.com/adamchainz/django-upgrade
+       rev: 1.22.2  # check for latest
+       hooks:
+         - id: django-upgrade
+           args: [--target-version, "4.2"]  # ← derive from project's lowest supported Django, see below
+   ```
+
+   **Target-version derivation (DO NOT hardcode):**
+   - `pyupgrade --pyXY-plus`: use the **lowest** Python from `requires-python` in `pyproject.toml`. Example: `requires-python = ">=3.10"` → `--py310-plus`. `>=3.9,<3.13` → `--py39-plus`.
+   - `django-upgrade --target-version X.Y`: use the **lowest** Django version from the project's Django dependency constraint (collected in Step 0). Example: `"django>=4.2"` → `--target-version 4.2`. `"django>=5.2"` → `--target-version 5.2`.
+   - Both targets pin the *floor* — code is rewritten to drop compat with anything older. Pinning higher than what `requires-python` / Django constraint allows would break runtime.
+
+   **Key point:** pre-commit runs hooks only on staged files by default. `ruff`, `pyupgrade`, and `django-upgrade` will only modify files the developer is actively changing — existing untouched code stays as-is. This is consistent with the Iron Law (minimal diff): the developer is already editing that file, so a syntax modernization rewrite of the same lines is acceptable. (Forbidding `pre-commit run --all-files` in Step 3 of this skill enforces the same principle for the rest of the codebase.)
+
+   **Why pyupgrade in pre-commit but not as a ruff rule?** The skill explicitly disables ruff's `UP` ruleset (Step 2) to avoid bulk auto-rewrites. `pyupgrade` as a separate pre-commit hook achieves the same modernization but only on staged lines, so the diff stays scoped to the developer's actual edits. (If you ever want to retire the pyupgrade hook, switch to ruff `UP` instead — never run both.)
 
 2. **Add ruff configuration to `pyproject.toml`** (minimal, non-invasive):
    ```toml
@@ -371,12 +399,15 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
 
 5. **Commit:**
    ```
-   Add pre-commit hooks with ruff (staged files only)
+   Add pre-commit hooks with ruff + pyupgrade<+ django-upgrade> (staged files only)
 
-   - Added .pre-commit-config.yaml with ruff format + lint
+   - Added .pre-commit-config.yaml with:
+     - Standard hygiene hooks (trailing-whitespace, detect-private-key, etc.)
+     - ruff lint (E, F, W) + ruff-format
+     - pyupgrade with --py<XY>-plus derived from requires-python
+     <- django-upgrade with --target-version <X.Y> derived from Django constraint>
    - Configured ruff with basic flake8-equivalent rules (E, F, W)
-   - Hooks run only on staged files — no existing code reformatted
-   - Added standard hygiene hooks (trailing-whitespace, detect-private-key, etc.)
+   - Hooks run only on staged files — no existing code reformatted in bulk
    ```
 
 ---
@@ -808,6 +839,10 @@ Commits created: <count>
 | Hardcoding the Python matrix in tests.yml | Always derive from `requires-python` — recompute every run, never copy a previous workflow's list |
 | Hardcoding Django × Python pairs without checking the canonical table | Re-check the Django docs every run; drop EOL Django releases unless the project explicitly requires them |
 | Forgetting to add the Django × Python matrix table to README | If the project depends on Django, the README MUST show which combinations are tested — readers expect it |
+| Hardcoding `pyupgrade --pyXY-plus` | Derive from the lowest Python in `requires-python` — same principle as the CI matrix |
+| Hardcoding `django-upgrade --target-version` | Derive from the lowest Django in the project's Django constraint — pinning higher than the floor breaks runtime |
+| Enabling ruff `UP` rule alongside the pyupgrade hook | Pick one — they overlap. The skill defaults to a separate pyupgrade hook because UP rule is forbidden in Step 2's ruff config |
+| Running `pyupgrade` / `django-upgrade` outside pre-commit on the whole repo | Same as `pre-commit run --all-files` — defeats the minimal-diff principle |
 
 ## Red Flags — STOP
 
@@ -820,3 +855,5 @@ Commits created: <count>
 - "I'll just keep `["3.10", "3.11", "3.12", "3.13"]` since that's what the example shows" — **NO.** Derive from `requires-python`. The example is a placeholder, not a default.
 - "The Django docs probably haven't changed since the canonical table was written" — **NO.** Re-check <https://docs.djangoproject.com/en/dev/faq/install/> every run. Django releases are frequent.
 - "This project's Django constraint is loose, I'll just test against the latest Django" — **NO.** Test against every supported (Python, Django) pair within the project's constraints.
+- "I'll just use `--py310-plus` for pyupgrade, that's modern enough" — **NO.** Derive from `requires-python`. If the project supports 3.9, pyupgrade with `--py310-plus` will rewrite code in ways that break on 3.9.
+- "Let me run `pyupgrade --py310-plus .` to clean the whole codebase real quick" — **NO.** That's the same anti-pattern as `pre-commit run --all-files`. Use the hook on staged files only. (For deliberate Py2-cruft removal, use the `python2-cleanup` skill — category by category, with review.)
