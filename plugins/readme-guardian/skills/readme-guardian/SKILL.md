@@ -221,20 +221,27 @@ Based on user's decision (patch or rewrite), generate the README. Below is the t
 
 ### Django (only if Django package)
 
-| Django \ Python | 3.10 | 3.11 | 3.12 | 3.13 |
-|-----------------|------|------|------|------|
-| 4.2 LTS         | ✓    | ✓    | ✓    | ✓    |
-| 5.0             | ✗    | ✓    | ✓    | ✓    |
-| 5.1             | ✗    | ✓    | ✓    | ✓    |
+**Canonical Django × Python compatibility matrix** — this skill is the source of truth for this table; other skills (e.g., `python-upgrade-package` Step 2b) reference it.
 
-<Derive from Django version constraints + Django's own Python support matrix.
- Django's compatibility:
- - 4.2 LTS: Python 3.8-3.12 (extended to 3.13 in practice)
- - 5.0: Python 3.10-3.12
- - 5.1: Python 3.10-3.13
- - 5.2: Python 3.10-3.13
- Cross-reference with the project's requires-python to mark ✓/✗.
- Only include Django versions the project actually supports (from classifiers or deps).>
+Authoritative upstream: <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>
+
+| Django  | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                       |
+|---------|------|------|------|------|------|------------------------------|
+| 4.2 LTS | ✓    | ✓    | ✓    | —    | —    | Extended support to Apr 2026 |
+| 5.0     | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                 |
+| 5.1     | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                 |
+| 5.2 LTS | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS                   |
+
+(Pre-3.10 columns omitted: Python 3.8 and 3.9 are EOL; the modern `requires-python` floor is `>=3.10`. Add columns only if the project explicitly supports older Pythons.)
+
+**Re-check the upstream page each time you run this skill** — Django ships new versions and Python versions hit EOL on a regular cadence; this snapshot drifts.
+
+**How to derive the per-project table:**
+1. Read the project's Django version constraint (from `pyproject.toml` `[project] dependencies`)
+2. Filter to versions allowed by that constraint (e.g., `django>=4.2` → all 4 rows; `django>=5.1` → only 5.1 + 5.2 LTS)
+3. **Drop EOL Django versions** unless the project explicitly demands them (typically: keep only LTS rows + active non-LTS)
+4. Filter columns to match `requires-python` (e.g., `>=3.11` → drop the 3.10 column)
+5. Mark ✓ at the intersection of each (Django, Python) pair the project actually tests in CI
 
 ## Installation
 

@@ -528,29 +528,17 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
    ### 2b. Django version matrix (Django projects only)
 
    For Django projects, also derive a matrix of Django versions:
-   1. Read the Django version constraint from `pyproject.toml` `dependencies` (collected in Step 0)
-   2. Use the canonical Django × Python compatibility table (below)
+   1. Read the Django version constraint from `pyproject.toml` `dependencies` (collected in Step 0).
+   2. **Use the canonical Django × Python compatibility table from `readme-guardian`** — that skill is the source of truth for this matrix in this plugin family. Read `plugins/readme-guardian/skills/readme-guardian/SKILL.md` (search for "Canonical Django × Python compatibility matrix") for the current snapshot, OR run `/readme-guardian:readme-guardian` separately and let it produce the matrix table for the project.
    3. Compute valid `(python, django)` pairs as the **intersection** of:
       - Python versions allowed by `requires-python`
       - Django versions allowed by the project's Django constraint
       - Pairs marked supported in the canonical matrix
+   4. **Filter aggressively:** drop EOL Django versions unless the project's constraint explicitly demands them. For `dependencies = ["django>=4.2"]`, the matrix should typically be just `4.2 LTS` and `5.2 LTS` — skip 5.0 and 5.1 (already EOL), unless the user opts in.
 
-   **Canonical Django × Python compatibility matrix:**
+   The authoritative upstream is <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>; the `readme-guardian` snapshot is what gets checked against it. **Do not maintain a copy of the table in this skill** — that would re-introduce the cross-skill drift this delegation was created to fix.
 
-   Authoritative source: <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>
-
-   This table is a snapshot — re-check the source whenever you run this skill, because Django ships new versions and Python EOLs change.
-
-   | Django  | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                       |
-   |---------|-----|------|------|------|------|------|------------------------------|
-   | 4.2 LTS | —   | ✓    | ✓    | ✓    | —    | —    | Extended support to Apr 2026 |
-   | 5.0     | —   | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                 |
-   | 5.1     | —   | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                 |
-   | 5.2 LTS | —   | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS                   |
-
-   **Filter aggressively:** drop EOL Django versions unless the project's constraint explicitly demands them. If `dependencies = ["django>=4.2"]`, the matrix should typically be just `4.2 LTS` and `5.2 LTS` — skip 5.0 and 5.1 (already EOL), unless the user opts in.
-
-   Add the resulting table to the project README so users can see at a glance which combinations are tested. (For polished README work — badges, install instructions, rationale — cross-reference the `readme-guardian` skill.)
+   Once you have the per-project (Python, Django) pairs, use them in Step 3 (workflow YAML) and add the resulting table to the project README. For polished README work (badges, install instructions, rationale), cross-reference the `readme-guardian` skill — same source.
 
 3. **Create `.github/workflows/tests.yml`** using the matrix derived in Step 2.
 
@@ -952,7 +940,8 @@ Commits created: <count>
 | Setting up setuptools-scm without a git tag | The current version MUST have a tag, or setuptools-scm will generate `0.0.0` |
 | Choosing a version tool without asking the user | Always present options and let user decide |
 | Hardcoding the Python matrix in tests.yml | Always derive from `requires-python` — recompute every run, never copy a previous workflow's list |
-| Hardcoding Django × Python pairs without checking the canonical table | Re-check the Django docs every run; drop EOL Django releases unless the project explicitly requires them |
+| Hardcoding Django × Python pairs without checking the canonical table | Read the canonical table from `readme-guardian` SKILL.md (single source of truth in this plugin family) and re-check it against Django docs; drop EOL Django releases unless the project explicitly requires them |
+| Maintaining a parallel copy of the Django × Python matrix in this skill | Don't. The table lives in `readme-guardian` — referencing it here keeps both skills in sync automatically |
 | Forgetting to add the Django × Python matrix table to README | If the project depends on Django, the README MUST show which combinations are tested — readers expect it |
 | Hardcoding `pyupgrade --pyXY-plus` | Derive from the lowest Python in `requires-python` — same principle as the CI matrix |
 | Hardcoding `django-upgrade --target-version` | Derive from the lowest Django in the project's Django constraint — pinning higher than the floor breaks runtime |
@@ -974,7 +963,7 @@ Commits created: <count>
 - "The deploy config is simple, I'll migrate it too" — **NO.** Flag it, don't touch it.
 - "I'll run the formatter once to establish a baseline" — **NO.** That's a massive diff on existing code.
 - "I'll just keep `["3.10", "3.11", "3.12", "3.13"]` since that's what the example shows" — **NO.** Derive from `requires-python`. The example is a placeholder, not a default.
-- "The Django docs probably haven't changed since the canonical table was written" — **NO.** Re-check <https://docs.djangoproject.com/en/dev/faq/install/> every run. Django releases are frequent.
+- "The Django docs probably haven't changed since the canonical table was written" — **NO.** Re-check <https://docs.djangoproject.com/en/dev/faq/install/> every run. Django releases are frequent. The canonical snapshot lives in `readme-guardian` — update it there if it's stale.
 - "This project's Django constraint is loose, I'll just test against the latest Django" — **NO.** Test against every supported (Python, Django) pair within the project's constraints.
 - "I'll just use `--py310-plus` for pyupgrade, that's modern enough" — **NO.** Derive from `requires-python`. If the project supports 3.9, pyupgrade with `--py310-plus` will rewrite code in ways that break on 3.9.
 - "Let me run `pyupgrade --py310-plus .` to clean the whole codebase real quick" — **NO.** That's the same anti-pattern as `pre-commit run --all-files`. Use the hook on staged files only. (For deliberate Py2-cruft removal, use the `python2-cleanup` skill — category by category, with review.)
