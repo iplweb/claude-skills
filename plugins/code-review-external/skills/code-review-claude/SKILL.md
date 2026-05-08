@@ -1,6 +1,6 @@
 ---
 name: code-review-claude
-description: Użyj, gdy user chce code review przez subagenta Claude'a (lokalnie, bez zewnętrznych CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu. Zwraca review po polsku i zapisuje do `/tmp/code-review-claude-<timestamp>.md`. Wywołuj zawsze, gdy user prosi o "code review claude", "review przez claude'a", "/code-review-claude" albo wskazuje Claude'a jako reviewera. Sens: trzecia opinia obok codex + opencode w `code-review-external`, albo standalone gdy user chce niezależny lokalny review bez zewnętrznych tooli. Dla review pull requestów na GitHubie używaj `/code-review:code-review` zamiast tego skilla.
+description: Użyj, gdy user chce code review przez subagenta Claude'a (lokalnie, bez zewnętrznych CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N/branch = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu, dowolny inny tekst = free-form wskazówka dla subagenta (np. "całe repo", "security audit src/auth/", "ostatnie 3 commity z focus na perf"). Zwraca review po polsku i zapisuje do `/tmp/code-review-claude-<timestamp>.md`. Wywołuj zawsze, gdy user prosi o "code review claude", "review przez claude'a", "/code-review-claude" albo wskazuje Claude'a jako reviewera. Sens: trzecia opinia obok codex + opencode w `code-review-external`, albo standalone gdy user chce niezależny lokalny review bez zewnętrznych tooli. Dla review pull requestów na GitHubie używaj `/code-review:code-review` zamiast tego skilla.
 ---
 
 # Code review przez subagenta Claude
@@ -29,7 +29,13 @@ Identyczna jak w `code-review-codex` / `code-review-opencode`:
 2. **`test -f "$ARG"`** zwraca true → `file`.
 3. **`test -d "$ARG"`** zwraca true → `dir`.
 4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`.
-5. W przeciwnym razie → zatrzymaj się i zapytaj usera.
+5. **W przeciwnym razie → `free`** (free-form hint). Argument jest
+   wolnym tekstem od usera ("całe repo", "audyt security w
+   `src/auth/`") — przekazujemy go do subagenta jako wskazówkę,
+   subagent sam decyduje co przejrzeć.
+
+Po detekcji **zawsze ogłoś userowi** jednym zdaniem ("Tryb: free,
+wskazówka: ‘…’"), żeby mógł przerwać przy typo.
 
 ## Mechanizm: subagent przez `Agent` tool
 
@@ -88,6 +94,18 @@ zbudowanym z **dwóch części**:
   > Zrób code review katalogu **`<PATH>`**. Wylistuj zawartość
   > (`git ls-files <PATH>` jeśli git, inaczej `find`), przeczytaj
   > kluczowe pliki. Pomiń testy chyba że widzisz w nich błędy.
+
+- `free <HINT>`:
+  > User prosi o następujące code review tego repo:
+  >
+  >   `<HINT>`
+  >
+  > Sam zorientuj się co dokładnie zreviewować i jak (które pliki,
+  > które komendy git, ewentualnie cały repo). Trzymaj się tematu
+  > i scope-u który user wskazał — jeśli mówi "security audit",
+  > nie rób ogólnego review; jeśli mówi "całe repo", przejrzyj
+  > ważne moduły (Read/Grep/Bash dostępne), nie tylko ostatnie
+  > zmiany.
 
 **Część B: standardowy review block** - dosłownie:
 

@@ -1,6 +1,6 @@
 ---
 name: code-review-opencode
-description: Użyj, gdy user chce wygenerować zewnętrzne code review za pomocą `opencode` (opencode CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu. Opencode pisze finalne review przez swój write tool do `/tmp/code-review-opencode-<timestamp>.md` (czysty markdown), verbose log do `.log`. Uruchamiany z tymczasowym project-local config (`.opencode/opencode.json`) który blokuje wszystkie modyfikacje poza zapisem review do `/tmp/`. Wywołuj zawsze, gdy user prosi o "code review przez opencode", "opencode run", "/code-review-opencode" albo wprost wymienia opencode jako external reviewer.
+description: Użyj, gdy user chce wygenerować zewnętrzne code review za pomocą `opencode` (opencode CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N/branch = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu, dowolny inny tekst = free-form wskazówka dla opencode (np. "całe repo", "security audit src/auth/", "ostatnie 3 commity z focus na perf"). Opencode pisze finalne review przez swój write tool do `/tmp/code-review-opencode-<timestamp>.md` (czysty markdown), verbose log do `.log`. Uruchamiany z tymczasowym project-local config (`.opencode/opencode.json`) który blokuje wszystkie modyfikacje poza zapisem review do `/tmp/`. Wywołuj zawsze, gdy user prosi o "code review przez opencode", "opencode run", "/code-review-opencode" albo wprost wymienia opencode jako external reviewer.
 ---
 
 # Code review przez opencode (artifact-file pattern + ograniczone permissions)
@@ -30,7 +30,15 @@ Identycznie jak w `code-review-codex`:
 2. **`test -f "$ARG"`** → `file`.
 3. **`test -d "$ARG"`** → `dir`.
 4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`.
-5. W przeciwnym razie → zatrzymaj się i zapytaj usera (nie zgaduj).
+5. **W przeciwnym razie → `free`** (free-form hint). Argument jest
+   wolnym tekstem od usera ("całe repo", "audyt security w
+   `src/auth/`", "sprawdź czy nowe API jest backward compatible") —
+   przekazujemy go jako wskazówkę, opencode sam czyta repo i
+   decyduje co zreviewować.
+
+Po detekcji **zawsze ogłoś userowi** jednym zdaniem co wykryłeś
+("Tryb: free-form, wskazówka: ‘…’"), żeby mógł przerwać jeśli to
+typo (np. literówka w ścieżce pliku spadła na `free`).
 
 ## Strategia output i permissions: dwa problemy, dwa rozwiązania
 
@@ -273,6 +281,40 @@ ${FILES}
 
 Przeczytaj te pliki (masz dostęp do FS przez swoje narzędzia)
 i zgłoś problemy. Pomiń testy, chyba że widzisz w nich błędy.
+
+<DYREKTYWA ZAPISU>
+<TUTAJ STANDARDOWY PROMPT>
+PROMPT
+)" > "$RUN_LOG" 2>&1
+```
+
+### `free`
+
+Argument jest wolną wskazówką od usera — wkleić go dosłownie.
+Opencode sam orientuje się jakie pliki przejrzeć, jakie diff-y
+wywołać. Tryb dla "całe repo", "audyt security w X", "ostatnie
+3 commity z focus na perf" itp.
+
+Nie pre-computujemy `git diff` ani listy plików (jak w trybach
+uncommitted/dir) — opencode ma w swoim sandbox-ie git/ls/find/cat
+i sam zdecyduje czego potrzebuje. Project root mu narzucamy przez
+`--dir` jak zawsze.
+
+```bash
+opencode run --dir "$PROJECT_ROOT" "$(cat <<PROMPT
+User prosi o następujące code review tego repo:
+
+  ${ARG}
+
+Sam zorientuj się co dokładnie zreviewować i jak (które pliki,
+które komendy git, ewentualnie cały repo). Trzymaj się tematu
+i scope-u który user wskazał — jeśli mówi "security audit", nie
+rób ogólnego review; jeśli mówi "całe repo", przejrzyj ważne
+moduły, nie tylko ostatnie zmiany.
+
+Masz dostęp do read-only komend: \`git status\`, \`git log\`,
+\`git diff\`, \`ls\`, \`find\`, \`cat\`, \`grep\`, \`rg\` —
+używaj ich do nawigacji.
 
 <DYREKTYWA ZAPISU>
 <TUTAJ STANDARDOWY PROMPT>

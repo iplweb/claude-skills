@@ -1,6 +1,6 @@
 ---
 name: code-review-codex
-description: Użyj, gdy user chce wygenerować zewnętrzne code review za pomocą `codex` (OpenAI Codex CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu. Codex pisze finalne review przez swój write tool do `/tmp/code-review-codex-<timestamp>.md` (czysty markdown), a verbose log idzie do `.log`. Wywołuj zawsze, gdy user prosi o "code review codexem", "codex review", "/code-review-codex" albo wprost wymienia codex jako external reviewer.
+description: Użyj, gdy user chce wygenerować zewnętrzne code review za pomocą `codex` (OpenAI Codex CLI). Skill auto-wykrywa cel z argumentu - brak argumentu = niezacommitowane zmiany, SHA/HEAD~N/branch = pojedynczy commit, ścieżka pliku = review pliku, ścieżka katalogu = review katalogu, dowolny inny tekst = free-form wskazówka dla codexa (np. "całe repo", "security audit src/auth/", "ostatnie 3 commity z focus na perf"). Codex pisze finalne review przez swój write tool do `/tmp/code-review-codex-<timestamp>.md` (czysty markdown), a verbose log idzie do `.log`. Wywołuj zawsze, gdy user prosi o "code review codexem", "codex review", "/code-review-codex" albo wprost wymienia codex jako external reviewer.
 ---
 
 # Code review przez codex (artifact-file pattern)
@@ -31,8 +31,11 @@ Argument przychodzi w wiadomości usera po nazwie skilla. Wykryj typ
 3. **`test -d "$ARG"`** zwraca true → `dir`.
 4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`
    (działa dla SHA, `HEAD`, `HEAD~3`, nazw branchy, tagów).
-5. W przeciwnym razie → zatrzymaj się i zapytaj usera co miał na
-   myśli (nie zgaduj).
+5. **W przeciwnym razie → `free`** (free-form hint). Argument jest
+   wolnym tekstem od usera (np. "całe repo", "audyt security w
+   `src/auth/`", "sprawdź czy nowe API jest backward compatible") —
+   przekazujemy go jako wskazówkę do codexa, on sam decyduje co i jak
+   zreviewować w kontekście tego repo.
 
 Sprawdzenia rób przez `Bash` jednym wywołaniem, np.:
 
@@ -42,9 +45,13 @@ if [ -z "$ARG" ]; then echo "uncommitted"
 elif [ -f "$ARG" ]; then echo "file"
 elif [ -d "$ARG" ]; then echo "dir"
 elif git rev-parse --verify "$ARG^{commit}" >/dev/null 2>&1; then echo "commit"
-else echo "unknown"
+else echo "free"
 fi
 ```
+
+Po detekcji **zawsze ogłoś userowi co wykryłeś** jednym zdaniem
+("Tryb: free-form, wskazówka: ‘…’"), żeby mógł przerwać jeśli to
+pomyłka (np. typo w ścieżce pliku spadł na `free`).
 
 ## Strategia output: artifact file zamiast tee
 
@@ -75,10 +82,23 @@ Zawsze:
 Każda komenda kończy `bash`-em pojedynczego HEREDOC z promptem
 zawierającym **dyrektywę zapisu** + standardowy prompt review.
 
+> **WAŻNE — flagi `--uncommitted` / `--commit` są wzajemnie wykluczające
+> z `[PROMPT]`** (codex ≥ 0.129 odrzuca je z błędem
+> `the argument '--uncommitted' cannot be used with '[PROMPT]'`).
+> Nie używamy więc tych flag — zamiast tego dajemy codexowi własny
+> prompt, który mówi co ma zreviewować, a codex sam robi `git diff` /
+> `git show` przez swój bash tool. Dzięki temu możemy też wkleić
+> dyrektywę zapisu do pliku.
+
 ### `uncommitted`
 
 ```bash
-codex review --uncommitted "$(cat <<PROMPT
+codex review "$(cat <<PROMPT
+Zrób code review **niezakomitowanych zmian** w tym repo
+(staged + unstaged + untracked). Najpierw uruchom \`git status\`
+i \`git diff HEAD\` żeby zobaczyć diff, oraz przeczytaj nowe pliki
+untracked w całości. Dopiero potem oceniaj.
+
 <DYREKTYWA ZAPISU - patrz niżej>
 <TUTAJ STANDARDOWY PROMPT - patrz sekcja "Prompt review">
 PROMPT
@@ -88,7 +108,13 @@ PROMPT
 ### `commit`
 
 ```bash
-codex review --commit "$ARG" "$(cat <<PROMPT
+codex review "$(cat <<PROMPT
+Zrób code review zmian wprowadzonych przez commit **${ARG}**.
+Najpierw uruchom \`git show --stat ${ARG}\` i \`git show ${ARG}\`
+żeby zobaczyć diff oraz kontekst zmian. Jeśli commit dotyka nowych
+plików, przeczytaj je w całości. Oceniaj **tylko** zmiany w tym
+commicie, nie cały stan repo.
+
 <DYREKTYWA ZAPISU>
 <TUTAJ STANDARDOWY PROMPT>
 PROMPT
@@ -122,6 +148,32 @@ Zrób code review wszystkich plików źródłowych w katalogu
 **${ARG}**. Najpierw wylistuj zawartość, potem przejrzyj
 najważniejsze pliki. Pomiń pliki testowe chyba że widzisz w nich
 problemy.
+
+<DYREKTYWA ZAPISU>
+<TUTAJ STANDARDOWY PROMPT>
+PROMPT
+)" > "$RUN_LOG" 2>&1
+```
+
+### `free`
+
+Argument jest wolną wskazówką od usera — wkleić go dosłownie.
+Codex sam orientuje się jakie pliki wziąć, jakie diff-y wywołać,
+itd. To jest tryb dla "całe repo", "audyt security", "ostatnie
+3 commity z focus na perf" i podobnych pytań które nie pasują do
+auto-detekcji.
+
+```bash
+codex review "$(cat <<PROMPT
+User prosi o następujące code review tego repo:
+
+  ${ARG}
+
+Sam zorientuj się co dokładnie zreviewować i jak (które pliki,
+które komendy git, ewentualnie cały repo). Trzymaj się tematu
+i scope-u który user wskazał — jeśli mówi "security audit", nie
+rób ogólnego review; jeśli mówi "całe repo", przejrzyj ważne
+moduły, nie tylko ostatnie zmiany.
 
 <DYREKTYWA ZAPISU>
 <TUTAJ STANDARDOWY PROMPT>
@@ -264,10 +316,17 @@ Sekcja pusta → "brak".
   prompt trafi do codexa.
 - **Krótki timeout** — codex review na większym diff-ie potrafi
   iść 5-8 minut. Domyślne 120s = false negative.
-- **Zgadywanie typu argumentu** — jeśli nie pasuje do żadnego
-  z czterech wzorców, zapytaj usera; nie wybieraj losowo.
-- **Próba użycia `--uncommitted` razem z `--commit`** — codex review
-  bierze TYLKO jeden tryb. Auto-detekcja musi wybrać dokładnie jeden.
+- **Cisze przy detekcji trybu** — zawsze ogłoś userowi jeden zdanie
+  co wykryłeś ("Tryb: free, wskazówka: ‘…’"). Dzięki temu jak user
+  zrobił typo w ścieżce pliku i argument spadł na `free`, ma szansę
+  przerwać przed odpaleniem codexa.
+- **Użycie flagi `--uncommitted` lub `--commit <SHA>` razem z PROMPT** —
+  codex (≥ 0.129) odrzuca to z błędem `the argument '--uncommitted'
+  cannot be used with '[PROMPT]'`. Te flagi są **wykluczające** z
+  custom promptem, a my potrzebujemy promptu (dyrektywa zapisu).
+  Dlatego w trybach `uncommitted` i `commit` NIE używamy tych flag —
+  dajemy codexowi prompt który każe mu samemu zrobić `git diff HEAD`
+  / `git show <sha>` przez jego bash tool.
 - **Wklejanie sekretów do promptu** — codex i tak ma dostęp do FS,
   niech czyta sam.
 - **Nie sprawdzanie czy plik powstał** — czasem codex zignoruje

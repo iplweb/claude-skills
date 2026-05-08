@@ -1,6 +1,6 @@
 ---
 name: code-review-external
-description: Użyj, gdy user chce trzy niezależne opinie o kodzie - codex, opencode i subagent Claude'a równolegle. Skill auto-wykrywa cel z argumentu (brak = niezacommitowane zmiany, SHA/HEAD~N = commit, plik = review pliku, katalog = review katalogu), uruchamia trzy review w tle, czeka na wszystkie, drukuje je side-by-side i na końcu produkuje cross-check (overlap/rozbieżności) + amalgamację. Pliki w `/tmp/code-review-{codex,opencode,claude}-<timestamp>.md`. Wywołuj zawsze, gdy user prosi o "external code review", "trzy opinie", "wszystkie review naraz", "/code-review-external" albo o równoległy review przez wiele narzędzi. Dla review pull requestów na GitHubie używaj `/code-review:code-review` zamiast tego skilla.
+description: Użyj, gdy user chce trzy niezależne opinie o kodzie - codex, opencode i subagent Claude'a równolegle. Skill auto-wykrywa cel z argumentu (brak = niezacommitowane zmiany, SHA/HEAD~N/branch = commit, plik = review pliku, katalog = review katalogu, dowolny inny tekst = free-form wskazówka dla wszystkich trzech narzędzi, np. "całe repo" / "security audit src/auth/"), uruchamia trzy review w tle, czeka na wszystkie, drukuje je side-by-side i na końcu produkuje cross-check (overlap/rozbieżności) + amalgamację. Pliki w `/tmp/code-review-{codex,opencode,claude}-<timestamp>.md`. Wywołuj zawsze, gdy user prosi o "external code review", "trzy opinie", "wszystkie review naraz", "/code-review-external" albo o równoległy review przez wiele narzędzi. Dla review pull requestów na GitHubie używaj `/code-review:code-review` zamiast tego skilla.
 ---
 
 # Równoległe code review: codex + opencode + claude subagent (background + cross-check)
@@ -37,9 +37,15 @@ Identyczna jak w `code-review-codex` / `code-review-opencode` /
 2. **`test -f "$ARG"`** zwraca true → `file`.
 3. **`test -d "$ARG"`** zwraca true → `dir`.
 4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`.
-5. W przeciwnym razie → zatrzymaj się i zapytaj usera.
+5. **W przeciwnym razie → `free`** (free-form hint). ARG to wolny
+   tekst od usera ("całe repo", "audyt security w src/auth/",
+   itp.) — przekazujemy go bez zmian do każdego z trzech narzędzi
+   jako wskazówkę, każde z nich samo decyduje co przejrzeć.
 
 Wykryj **raz**, użyj tego samego MODE i ARG dla trzech narzędzi.
+**Zawsze ogłoś userowi** jednym zdaniem co wykryłeś ("Tryb: free,
+wskazówka: ‘…’") — żeby przy typo w ścieżce mógł przerwać zanim
+odpalimy trzy CLI.
 
 ## Architektura: background dispatch → wait → cross-check + amalgamacja
 
