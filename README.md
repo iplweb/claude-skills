@@ -4,15 +4,114 @@ A collection of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sk
 
 ## Available Plugins
 
+Grouped by purpose:
+
+### Python project lifecycle
+
 | Plugin | Description |
 |--------|-------------|
-| [code-review-external](plugins/code-review-external/) | Parallel external code review with codex, opencode, and a Claude subagent — runs all three reviewers concurrently on a diff, commit, file, or directory and surfaces three independent opinions side-by-side |
+| [python-upgrade-package](plugins/python-upgrade-package/) | Modernizes legacy Python packages step-by-step — `setup.py` → `uv` + `pyproject.toml`, Travis → GitHub Actions, pytest migration |
+| [python2-cleanup](plugins/python2-cleanup/) | Removes Python 2 compatibility cruft from a Py3 codebase — `six`, `__future__`, `unicode()`, `iteritems`, `python_2_unicode_compatible`, etc. — one commit per category |
+| [readme-guardian](plugins/readme-guardian/) | Analyzes and improves Python project READMEs — badges, install instructions, Python/Django version support matrix (canonical source for Django × Python compatibility) |
+| [oss-github-publisher](plugins/oss-github-publisher/) | Pre-flight audit before publishing a repo as open source — LICENSE, CI, pre-commit, secrets/PII/internal-hostname scans, GitHub Actions security, PyPI metadata audit |
 | [github-build-fixer](plugins/github-build-fixer/) | Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green |
-| [oss-github-publisher](plugins/oss-github-publisher/) | Pre-flight audit before publishing a repo as open source — checks LICENSE, CI, pre-commit, scans for secrets and PII |
-| [premortem](plugins/premortem/) | Klein-style premortem on plans, launches, hires, pricing, or strategy — assumes failure 6 months out and works backward to expose blind spots |
-| [premortem-multiple](plugins/premortem-multiple/) | Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into one unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan |
-| [python-upgrade-package](plugins/python-upgrade-package/) | Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration |
-| [readme-guardian](plugins/readme-guardian/) | Analyzes and improves Python project READMEs — badges, install instructions, version support matrix |
+
+### Decision-making (premortems)
+
+| Plugin | Description |
+|--------|-------------|
+| [premortem](plugins/premortem/) | Klein-style premortem on plans, launches, hires, pricing, or strategy — assumes failure 6 months out and works backward; produces visual HTML report |
+| [premortem-multiple](plugins/premortem-multiple/) | Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into one unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan; HTML report |
+
+### Code review
+
+| Plugin | Description |
+|--------|-------------|
+| [code-review-external](plugins/code-review-external/) | Parallel external code review with codex, opencode, and a Claude subagent — three independent opinions side-by-side + cross-check (consensus / divergences / contradictions) |
+
+## Skill graph — when to use what
+
+### Python project lifecycle
+
+```mermaid
+graph LR
+  legacy["Legacy Python package<br/>(setup.py / Travis / six / etc.)"]
+  pup["python-upgrade-package<br/>(modernize tooling)"]
+  p2c["python2-cleanup<br/>(clean Py2 cruft from source)"]
+  rg["readme-guardian<br/>(README polish)"]
+  ossp["oss-github-publisher<br/>(pre-publication audit)"]
+  publish["git push public<br/>or PyPI release"]
+  ci["CI red"]
+  gbf["github-build-fixer"]
+
+  legacy --> pup
+  pup --> p2c
+  pup --> rg
+  p2c --> rg
+  rg --> ossp
+  pup --> ossp
+  ossp --> publish
+  ci --> gbf
+  gbf -. "no CI exists" .-> pup
+```
+
+**Recommended sequence** for modernizing + open-sourcing a legacy Python package:
+
+1. `python-upgrade-package` — packaging, CI, pre-commit, pytest. Tooling only, never touches source.
+2. `python2-cleanup` — clean Py2 cruft from source if any (`six`, `__future__`, `unicode()`, etc.). One commit per category.
+3. `readme-guardian` — RST → MD, badges, install instructions, Python/Django version matrix.
+4. `oss-github-publisher` — last-mile audit (LICENSE, secrets, internal hostnames, PyPI metadata, GH Actions security).
+5. Publish.
+6. If CI fails along the way, `github-build-fixer` diagnoses and fixes.
+
+### Decision-making
+
+```mermaid
+graph LR
+  single["/premortem<br/>(conversational, single perspective<br/>+ HTML report)"]
+  multi["/premortem-multiple<br/>(three CLIs in parallel)"]
+  pcodex["premortem-codex"]
+  popencode["premortem-opencode"]
+  pclaude["premortem-claude"]
+  meta["meta-synthesis<br/>(consensus / divergences / contradictions)<br/>+ HTML + markdown + transcript"]
+
+  multi --> pcodex
+  multi --> popencode
+  multi --> pclaude
+  pcodex --> meta
+  popencode --> meta
+  pclaude --> meta
+```
+
+Use `/premortem` when one perspective is enough (lower-stakes plan or quick stress-test). Use `/premortem-multiple` when the decision warrants three independent opinions (higher-stakes launch / hire / pricing change with significant downside).
+
+### Code review
+
+```mermaid
+graph LR
+  cre["/code-review-external<br/>(wrapper)"]
+  codex["code-review-codex"]
+  opencode["code-review-opencode"]
+  claude["code-review-claude"]
+  cross["cross-check<br/>(consensus / divergences / contradictions)"]
+
+  cre --> codex
+  cre --> opencode
+  cre --> claude
+  codex --> cross
+  opencode --> cross
+  claude --> cross
+```
+
+For GitHub PR review, use the official `/code-review:code-review` skill instead — it has a multi-agent pipeline with confidence scoring and posts the comment back to the PR. The skills above are for **local** targets (uncommitted changes, a commit, a file, a directory, or a free-form scope).
+
+### Cross-references between skills
+
+- `python-upgrade-package` reads its Django × Python compatibility matrix from `readme-guardian` (single source of truth — see Step 2b in `python-upgrade-package`).
+- `python-upgrade-package` recommends `python2-cleanup` after Step 6 (modernize tooling first, then clean Py2 cruft from source — different scopes, different Iron Laws).
+- `readme-guardian` recommends running `python-upgrade-package` first when the project has legacy tooling — fixing the README without fixing the underlying `pyproject.toml` produces inconsistent badges.
+- `oss-github-publisher` recommends `readme-guardian` for README polish (audit will WARN on missing sections; readme-guardian fixes them properly).
+- `github-build-fixer` suggests `python-upgrade-package` when no CI workflow exists — fixing absent CI is a packaging-modernization concern, not a build-fixer one.
 
 ## Installation
 
@@ -33,6 +132,7 @@ In Claude Code, run:
 /plugin install premortem@iplweb-claude-skills
 /plugin install premortem-multiple@iplweb-claude-skills
 /plugin install python-upgrade-package@iplweb-claude-skills
+/plugin install python2-cleanup@iplweb-claude-skills
 /plugin install readme-guardian@iplweb-claude-skills
 ```
 
@@ -53,7 +153,8 @@ Once installed, skills activate automatically based on context, or you can invok
   - `/premortem-multiple:premortem-codex` — only codex
   - `/premortem-multiple:premortem-opencode` — only opencode
   - `/premortem-multiple:premortem-claude` — only a Claude subagent
-- `/python-upgrade-package:python-upgrade-package` — to modernize a legacy Python package
+- `/python-upgrade-package:python-upgrade-package` — to modernize a legacy Python package (tooling only)
+- `/python2-cleanup:python2-cleanup` — to remove Python 2 compatibility cruft from a Py3 codebase (source code, category by category)
 - `/readme-guardian:readme-guardian` — to improve a project's README
 
 ### code-review-external — argument forms
