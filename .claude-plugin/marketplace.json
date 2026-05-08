@@ -61,6 +61,15 @@
       }
     },
     {
+      "name": "python2-cleanup",
+      "source": "./plugins/python2-cleanup",
+      "description": "Removes Python 2 compatibility cruft from a Py3 codebase — six, __future__, unicode()/basestring/xrange, python_2_unicode_compatible, iteritems, has_key, u'' prefix, __metaclass__, stdlib renames, dunder renames — category by category, one commit each",
+      "version": "2026.05.0",
+      "author": {
+        "name": "Michal Pasternak"
+      }
+    },
+    {
       "name": "readme-guardian",
       "source": "./plugins/readme-guardian",
       "description": "Analyzes and improves Python project READMEs — badges, install instructions, version support matrix",
