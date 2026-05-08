@@ -21,112 +21,198 @@ NIE używaj, gdy:
 
 - **`codex` w `$PATH`** (`which codex`).
 - **`opencode` w `$PATH`** (`which opencode`).
-- Subagent Claude zawsze dostępny przez `Agent` tool.
+- **`claude` w `$PATH`** (`which claude` — Claude Code CLI).
+- **`tmux` w `$PATH`** (`which tmux`). Wszystkie trzy reviewers
+  jadą w osobnych tmux sessions.
 
-Brak któregoś z dwóch CLI → zatrzymaj się i powiedz userowi co
-zainstalować. Nie kontynuuj z dwoma, sens skilla = trzy
-niezależne opinie. Jeśli user chce tylko 2 z 3, niech użyje
-indywidualnych skilli.
+Brak któregoś z czterech → zatrzymaj się i powiedz userowi co
+zainstalować. Sens skilla = trzy niezależne opinie w trzech
+niezależnych terminalach (attachable). Jeśli user chce tylko 2 z 3,
+niech użyje indywidualnych skilli.
 
 ## Auto-detekcja celu
 
 Wspólna logika 5 trybów (`uncommitted` / `file` / `dir` / `commit` / `free`) — czytaj **`../../shared/target-detection.md`**. Wykryj **raz**, użyj tego samego MODE i ARG dla trzech narzędzi. **Zawsze ogłoś userowi** wykryty tryb zanim odpalisz trzy CLI — przy typo w ścieżce user musi mieć szansę przerwać.
 
-## Architektura: background dispatch → wait → cross-check + amalgamacja
+## Architektura: 3 tmux sessions równolegle → combined polling → cross-check
 
-**Wszystkie trzy uruchamiane są w tle**, główny agent czeka na
-wszystkie przez `TaskOutput`, dopiero po komplecie produkuje
-cross-check i amalgamację. To zasadnicza różnica vs zwykłe odpalenie
-trzech skilli — jedno utknięcie (np. opencode wisi 20 min) nie
-blokuje pozostałych dwóch i można świadomie podjąć decyzję
-"dawaj 2 z 3" zamiast czekać w nieskończoność.
+Każdy z trzech reviewers ląduje w osobnej tmux session
+(`cr-codex-$TS`, `cr-opencode-$TS`, `cr-claude-$TS`). User w każdym
+momencie może zrobić `tmux attach -t cr-<tool>-$TS` żeby zobaczyć
+co dany reviewer robi na żywo. Główny agent uruchamia w **jednej
+komendzie bash** wszystkie trzy sesje (każde `tmux new-session -d`
+zwraca natychmiast) i dalej w tej samej komendzie poluje wszystkie
+trzy w combined loop.
 
 ```dot
 digraph flow {
   "Wykryj MODE+ARG, ustal TS" [shape=box];
-  "Bash bg: codex review" [shape=box];
-  "Bash bg: opencode run" [shape=box];
-  "Agent (async): claude subagent" [shape=box];
-  "TaskOutput x3 - czekaj" [shape=box];
+  "Setup config opencode + trap" [shape=box];
+  "Build 3 prompty + 3 runner scripts" [shape=box];
+  "tmux new-session -d cr-codex" [shape=box];
+  "tmux new-session -d cr-opencode" [shape=box];
+  "tmux new-session -d cr-claude" [shape=box];
+  "Drukuj userowi 3 attach commands" [shape=box];
+  "Combined polling (3 sesje, stuck detector)" [shape=box];
   "Read 3 plikow review" [shape=box];
   "Cross-check + amalgamacja" [shape=box];
   "Pokaz userowi" [shape=box];
 
-  "Wykryj MODE+ARG, ustal TS" -> "Bash bg: codex review" [label="rownolegle"];
-  "Wykryj MODE+ARG, ustal TS" -> "Bash bg: opencode run" [label="rownolegle"];
-  "Wykryj MODE+ARG, ustal TS" -> "Agent (async): claude subagent" [label="rownolegle"];
-  "Bash bg: codex review" -> "TaskOutput x3 - czekaj";
-  "Bash bg: opencode run" -> "TaskOutput x3 - czekaj";
-  "Agent (async): claude subagent" -> "TaskOutput x3 - czekaj";
-  "TaskOutput x3 - czekaj" -> "Read 3 plikow review";
+  "Wykryj MODE+ARG, ustal TS" -> "Setup config opencode + trap";
+  "Setup config opencode + trap" -> "Build 3 prompty + 3 runner scripts";
+  "Build 3 prompty + 3 runner scripts" -> "tmux new-session -d cr-codex";
+  "Build 3 prompty + 3 runner scripts" -> "tmux new-session -d cr-opencode";
+  "Build 3 prompty + 3 runner scripts" -> "tmux new-session -d cr-claude";
+  "tmux new-session -d cr-codex" -> "Drukuj userowi 3 attach commands";
+  "tmux new-session -d cr-opencode" -> "Drukuj userowi 3 attach commands";
+  "tmux new-session -d cr-claude" -> "Drukuj userowi 3 attach commands";
+  "Drukuj userowi 3 attach commands" -> "Combined polling (3 sesje, stuck detector)";
+  "Combined polling (3 sesje, stuck detector)" -> "Read 3 plikow review";
   "Read 3 plikow review" -> "Cross-check + amalgamacja";
   "Cross-check + amalgamacja" -> "Pokaz userowi";
 }
 ```
 
-### Krok 1: ustal nazwy plików (jeden timestamp)
+Jedno utknięcie (np. opencode wisi na auth) nie blokuje pozostałych
+dwóch — combined polling wykrywa stuck po 90s braku progresu i zabija
+sesję, polling kontynuuje dla pozostałych. Można świadomie skończyć
+z 2 z 3 zamiast czekać 15 min.
+
+### Krok 1: ustal nazwy plików (jeden timestamp dla wszystkich trzech)
 
 ```bash
 TS=$(date +%Y%m%d-%H%M%S)
+export TS    # leaf skille czytają z env
+
+CODEX_SESSION=cr-codex-$TS
+OPENCODE_SESSION=cr-opencode-$TS
+CLAUDE_SESSION=cr-claude-$TS
+
 CODEX_OUT=/tmp/code-review-codex-$TS.md
 OPENCODE_OUT=/tmp/code-review-opencode-$TS.md
 CLAUDE_OUT=/tmp/code-review-claude-$TS.md
-# verbose logi (debug only) — leaf skille same je tworzą:
-# /tmp/code-review-codex-$TS.log
-# /tmp/code-review-opencode-$TS.log
+
+CODEX_LOG=/tmp/code-review-codex-$TS.log
+OPENCODE_LOG=/tmp/code-review-opencode-$TS.log
+CLAUDE_LOG=/tmp/code-review-claude-$TS.log
+
+CODEX_RUNNER=/tmp/cr-codex-runner-$TS.sh
+OPENCODE_RUNNER=/tmp/cr-opencode-runner-$TS.sh
+CLAUDE_RUNNER=/tmp/cr-claude-runner-$TS.sh
+
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
-Wygeneruj `$TS` raz przed dispatchem i wyeksportuj go (`export TS`)
-zanim dispatcheszesz Bash-e — leaf skille (`code-review-codex`,
-`code-review-opencode`) używają go żeby zachować ten sam timestamp.
+### Krok 2: opencode restrictive config + cleanup trap
 
-### Krok 2: trzy background tool calls w jednym message
+Zgodnie z `code-review-opencode/SKILL.md`, sekcja "Pełny wrapper
+bash" — write `.opencode/opencode.json` z restrictive permissions,
+zarejestruj `trap cleanup EXIT INT TERM` który dodatkowo zabija
+**wszystkie trzy** tmux sessions (na wszelki wypadek gdy główny
+bash dostanie SIGINT w trakcie polling-u).
 
-W **jednej** wiadomości — tool calls w tym samym message bloku
-startują równolegle, a każdy w trybie background nie blokuje
-głównego agenta:
+```bash
+cleanup() {
+  for s in "$CODEX_SESSION" "$OPENCODE_SESSION" "$CLAUDE_SESSION"; do
+    tmux kill-session -t "$s" 2>/dev/null
+  done
+  # opencode config restore (jak w code-review-opencode):
+  if [ -n "$CFG_BACKUP" ] && [ -f "$CFG_BACKUP" ]; then
+    mv "$CFG_BACKUP" "$CFG_PATH"
+  else
+    rm -f "$CFG_PATH"
+  fi
+  if [ -n "$CFG_DIR_CREATED" ]; then
+    rmdir "$CFG_DIR" 2>/dev/null
+  fi
+}
+trap cleanup EXIT INT TERM
+```
 
-1. **`Bash`** (codex) — `run_in_background: true`. Komenda zgodnie
-   z `code-review-codex`, sekcja "Komendy per tryb" — **artifact
-   file pattern**: codex sam pisze review do `$CODEX_OUT` przez
-   swój write tool, stdout/stderr lecą do `/tmp/code-review-codex-$TS.log`.
-   Pamiętaj o eksporcie `TS` w komendzie i o **dyrektywie zapisu**
-   w prompcie. Timeout 600000 ms. description: `code review codex
-   (<mode>)`. Zapamiętaj zwrócony `task_id`.
+### Krok 3: zbuduj 3 prompty + 3 runner scripts
 
-2. **`Bash`** (opencode) — `run_in_background: true`. Komenda
-   zgodnie z `code-review-opencode` — **artifact file + tymczasowy
-   project-local config + trap cleanup**. Opencode sam pisze
-   review do `$OPENCODE_OUT`, stdout do `.log`, dyrektywa zapisu
-   w prompcie, `--dir "$PROJECT_ROOT"` na cwd. Timeout 600000 ms.
-   description: `code review opencode (<mode>)`. Zapamiętaj `task_id`.
+Każdy leaf skill ma sekcję "Tryb-specyficzny prompt body" — wybierz
+body wg MODE z trzech leaf skilli, dorzuć dyrektywę zapisu (z
+`shared/write-directive.md`, z opencode-dopiskiem dla opencode-runnera)
+i standardowy prompt review (z `shared/standard-review-prompt.md`).
+Zinterpoluj `${OUT}` (różne dla każdego runnera) i `${ARG}`.
 
-3. **`Agent`** (claude) — domyślnie zwraca async task. `subagent_type:
-   "general-purpose"`, `description: "code review claude (<mode>)"`,
-   `prompt` zbudowany jak w `code-review-claude` (Część A: kontekst
-   targetu wg MODE, Część B: standardowy review block). W prompcie
-   subagenta dodaj **dyrektywę żeby zapisał review do `$CLAUDE_OUT`
-   przez Write tool** (subagent ma Write, identycznie jak codex/
-   opencode w nowym wzorcu) zamiast zwracać tekst. Zapamiętaj `agentId`.
+Następnie napisz 3 runner scripts (`printf %q` żeby bezpiecznie
+zaszyć prompt). Linia w runnerze różni się tylko wywołaniem CLI
+(patrz "<TOOL>-specific runner line" w odpowiednim leaf skillu):
 
-### Krok 3: czekaj na wszystkie trzy przez `TaskOutput`
+```bash
+# CODEX_RUNNER:
+{
+  printf '%s\n' '#!/bin/bash' 'set -o pipefail' 'export NO_COLOR=1'
+  printf 'codex exec --skip-git-repo-check --sandbox workspace-write %q </dev/null\n' "$CODEX_PROMPT"
+  printf '%s\n' 'EXIT=$?' 'echo' 'echo "===EXIT=$EXIT==="' 'sleep 2'
+} > "$CODEX_RUNNER"
+chmod +x "$CODEX_RUNNER"
 
-Po dispatchu masz 3 task IDs (codex bash, opencode bash, claude
-agent). Wywołaj `TaskOutput` dla każdego z `block: true` i sensownym
-`timeout` (sugeruj 600000 ms = 10 min na sztukę).
+# OPENCODE_RUNNER:
+{
+  printf '%s\n' '#!/bin/bash' 'set -o pipefail' 'export NO_COLOR=1'
+  printf 'opencode run --dir %q --print-logs %q </dev/null\n' "$PROJECT_ROOT" "$OPENCODE_PROMPT"
+  printf '%s\n' 'EXIT=$?' 'echo' 'echo "===EXIT=$EXIT==="' 'sleep 2'
+} > "$OPENCODE_RUNNER"
+chmod +x "$OPENCODE_RUNNER"
 
-**Robisz to sekwencyjnie** — wywołaj `TaskOutput` dla codex,
-potem dla opencode, potem dla claude. Każde wywołanie blokuje aż
-do ukończenia tego konkretnego taska albo timeoutu. Ponieważ
-wszystkie trzy uruchomiły się równolegle, łączny czas = max(t1,
-t2, t3), nie suma.
+# CLAUDE_RUNNER:
+{
+  printf '%s\n' '#!/bin/bash' 'set -o pipefail' 'export NO_COLOR=1'
+  printf 'claude -p %q --permission-mode auto --add-dir /tmp --add-dir %q --allowedTools %q --output-format text </dev/null\n' \
+    "$CLAUDE_PROMPT" "$PROJECT_ROOT" "Read Grep Glob Bash Write Edit"
+  printf '%s\n' 'EXIT=$?' 'echo' 'echo "===EXIT=$EXIT==="' 'sleep 2'
+} > "$CLAUDE_RUNNER"
+chmod +x "$CLAUDE_RUNNER"
+```
 
-**Po `TaskOutput` nie czytaj jego output** — verbose log nie jest
-potrzebny do prezentacji review. Sprawdź tylko że status = `completed`
-(albo `failed`). Faktyczny review jest w plikach `$CODEX_OUT`,
-`$OPENCODE_OUT`, `$CLAUDE_OUT`.
+### Krok 4: odpal 3 sesje tmux (po sobie, ale każda zwraca natychmiast)
 
-### Krok 4: walidacja plików + cross-check + amalgamacja
+```bash
+for pair in "$CODEX_SESSION:$CODEX_RUNNER:$CODEX_LOG" \
+            "$OPENCODE_SESSION:$OPENCODE_RUNNER:$OPENCODE_LOG" \
+            "$CLAUDE_SESSION:$CLAUDE_RUNNER:$CLAUDE_LOG"; do
+  IFS=: read -r SESS RUN LOG <<< "$pair"
+  if tmux has-session -t "$SESS" 2>/dev/null; then
+    echo "ERR: sesja $SESS już istnieje — abort"
+    exit 1
+  fi
+  tmux new-session -d -s "$SESS" -x 220 -y 50 "bash '$RUN'"
+  tmux pipe-pane -t "$SESS" "cat > '$LOG'"
+done
+
+cat <<INFO
+
+▶ Trzy review startują równolegle w tmux:
+    Codex:    tmux attach -t $CODEX_SESSION
+    Opencode: tmux attach -t $OPENCODE_SESSION
+    Claude:   tmux attach -t $CLAUDE_SESSION
+
+  Detach z attached: Ctrl-B D (CLI nadal działa).
+  Lista wszystkich: tmux ls
+
+  Output files (po zakończeniu):
+    $CODEX_OUT
+    $OPENCODE_OUT
+    $CLAUDE_OUT
+
+INFO
+```
+
+### Krok 5: combined polling (jedna pętla, 3 sesje)
+
+Patrz `../../shared/tmux-runner.md`, sekcja "Wzorzec polling dla
+`code-review-external`" — kopiuj 1:1, używa zmiennych ustawionych
+wyżej. Pętla kończy się gdy żadna z trzech sesji nie żyje (each
+zakończyła się sama lub została zabita przez stuck detector / timeout).
+
+Po pętli `Bash` wraca do agenta. Cleanup trap odpala się gdy bash
+kończy → opencode config przywrócony, ewentualne orphaned sesje
+tmux zabite (na wszelki wypadek).
+
+### Krok 6: walidacja plików + cross-check + amalgamacja
 
 1. **Sanity-check pliki przez `Bash`**:
    ```bash
@@ -210,16 +296,21 @@ co odpalenie trzech indywidualnych skilli.
 
 ### Co jeśli któreś narzędzie wisi / padło
 
-- **`TaskOutput` zwrócił status `running` po timeoucie 600s** —
-  task wisi. Pokaż userowi co masz (2 review + komunikat
-  "X-narzędzie wisi N min"). Sprawdź verbose log (`tail -20`
-  na `/tmp/code-review-X-$TS.log`) — często widać tam ostatnią
-  aktywność. Nie zabijaj procesu samodzielnie, **zapytaj usera**
-  czy czekać dłużej, czy jechać dalej z 2 z 3.
-- **Plik review pusty (<200 B) lub brak** → narzędzie albo padło,
-  albo zignorowało dyrektywę zapisu. `tail -50 /tmp/code-review-X-$TS.log`
-  pokaże dlaczego (provider error, permission denied, timeout).
-  Pokaż userowi w sekcji `⚠️ <narzędzie> padło`.
+- **Sesja zabita przez stuck detector po 90s** — w combined polling
+  loop log danej sesji nie urósł przez 90s i brak OUT pliku → tmux
+  kill-session. To NIE jest błąd, to feature; chroni przed wiszeniem
+  15+ min. Pokaż userowi: "X stuck (no progress 90s), zabito sesję".
+- **Sesja zabita przez timeout 600s** — całkowity deadline. Pokaż:
+  "X timeout 10 min, zabito sesję".
+- **Plik review pusty (<200 B) lub brak** → narzędzie zignorowało
+  dyrektywę zapisu albo padło zanim zaczęło pisać. `tail -50
+  /tmp/code-review-<tool>-$TS.log` pokaże dlaczego (provider error,
+  permission denied, auth fail). Pokaż userowi w sekcji
+  `⚠️ <narzędzie> padło`.
+- **Sesja tmux żyje ale OUT się nie zapełnia** — bardzo rzadkie,
+  oznacza że narzędzie pisze coś do pane'a ale nie do pliku. Zajrzyj
+  `tmux capture-pane -p -t cr-<tool>-$TS` żeby zobaczyć aktualny
+  stan terminala.
 - **Cross-check przy 2 z 3** → zaznacz wprost: "amalgamacja na
   podstawie 2 z 3, opinia <padłego> brakuje".
 - **Padły 2/3 albo 3/3** → nie udawaj cross-checku, raportuj co
@@ -228,51 +319,51 @@ co odpalenie trzech indywidualnych skilli.
 
 ## Częste pomyłki
 
-- **Foreground zamiast background.** Trzy tool calls foreground
-  blokują głównego agenta na czas najdłuższego z trzech — jeśli
-  np. opencode wisi 20+ min bez output, czekasz 20+ min zanim
-  pokażesz dwa pozostałe. Background + `TaskOutput` umożliwia
-  świadomą decyzję "jeden wisi, dawaj resztę".
-- **Sekwencyjne `TaskOutput` z błędnym założeniem że to opóźnia.**
-  `TaskOutput(codex)` blokuje tylko na codex, ale codex i tak
-  pracuje równolegle z opencode i claude. Łączny czas = max
-  z trzech, nie suma. Sekwencyjność jest tu OK.
-- **Różne timestampy w nazwach plików.** Wygeneruj `$TS` raz
-  i podstaw wszędzie. Trzy różne stamps = trudno znaleźć trójkę
-  plików tego samego runa.
-- **Stary wzorzec `tee` w komendzie codex/opencode.** Już nie
-  używamy. Leaf skille (`code-review-codex`, `code-review-opencode`)
-  uruchamiają CLI z `> "$RUN_LOG" 2>&1` (stdout do osobnego loga),
-  a sam review pisany jest przez agent do `$OUT` przez jego write
-  tool. Wrapper czyta tylko `$OUT`. To eliminuje 50+ KB śmieci
-  w kontekście Claude'a.
-- **Brak dyrektywy zapisu w prompcie subagenta Claude'a.** Subagent
-  domyślnie zwraca tekst przez `Agent` tool result. W nowym wzorcu
-  prompt subagenta każe **napisać review wprost do `$CLAUDE_OUT`
-  przez Write tool** (subagent to zrobi, ma Write) zamiast zwracać
-  tekst — wtedy konsystentnie z codex/opencode czytamy tylko plik.
-- **Pominięcie cross-checku.** W tej wersji skilla cross-check
-  i amalgamacja są **obowiązkowe**, nie opcjonalne. Bez nich
-  user dostaje to samo co odpalenie trzech indywidualnych
-  skilli — bez wartości dodanej.
-- **Synteza która chowa rozbieżności.** Wartość cross-checku
-  = pokazanie konsensusu vs rozbieżności. Smoothowanie ich
-  ("wszyscy mniej-więcej widzieli to samo") gubi sygnał.
-- **Próba parsowania verbose loga** (`/tmp/code-review-X-$TS.log`)
-  zamiast czytania `$OUT`. Verbose log nie jest do prezentacji,
-  służy tylko do debugowania kiedy `$OUT` jest pusty/uszkodzony.
-  Plik review ma już czysty markdown — zapisany bezpośrednio przez
-  agenta, bez bannerów, bez reasoning.
-- **Pominięcie `which codex && which opencode` na starcie.**
-  Lepiej powiedzieć od razu zamiast startować dwa i tłumaczyć
-  potem dlaczego trzeci nie działa.
-- **Zmiana review przy zapisie/displayu.** Pliki + display
-  pokazują **dosłownie** to co zwróciły narzędzia. Bez parafraz,
-  bez "skróciłem żeby było czytelniej". User chce raw output —
+- **Foreground zamiast tmux background.** Stary wzorzec: trzy `Bash
+  run_in_background: true` + `Agent` + `TaskOutput x3`. Tracimy:
+  attach UX, observability, spójność lifecycle, łatwy kill. Nowy
+  wzorzec to **3 tmux sessions, jedna bash komenda z combined polling-iem**.
+- **Trzy oddzielne komendy bash zamiast jednej.** Wszystko musi być
+  w **jednej** komendzie bash żeby trap cleanup mógł zabić wszystkie
+  3 sesje + przywrócić opencode config gdy user przerwie / timeout zadziała.
+- **Background dispatch bez tmux.** Trzy tool calls foreground bez
+  tmux blokowałyby głównego agenta na czas najdłuższego z trzech.
+  W nowym wzorcu agent czeka tylko na **jedną** bash komendę z
+  combined polling-iem; w środku tej komendy trzy CLI lecą równolegle
+  w tmux sessions. Łączny wall-time = max(t1,t2,t3), agent zajęty
+  jednym tool call.
+- **Brak `tmux pipe-pane` po `new-session`.** Bez pipe-pane RUN_LOG
+  jest pusty i stuck detector po 90s false-aborduje. Każde
+  `new-session` musi mieć po sobie `pipe-pane`.
+- **Różne timestampy w nazwach plików.** Wygeneruj `$TS` raz przed
+  trzema setupami i `export TS`. Trzy różne stamps = trudno znaleźć
+  trójkę plików tego samego runa.
+- **`pkill -9` zamiast `tmux kill-session`.** Tmux session ma czysty
+  lifecycle — `tmux kill-session` zabija pane (i CLI w nim) deterministycznie.
+  `pkill -9 -f opencode` może też zabić innego opencode'a usera, czego
+  user nie chce. NIGDY nie używaj `pkill` w tym skillu.
+- **Pominięcie cross-checku.** Cross-check + amalgamacja są
+  **obowiązkowe**, nie opcjonalne. Bez nich user dostaje to samo co
+  odpalenie trzech indywidualnych skilli — bez wartości dodanej.
+- **Synteza która chowa rozbieżności.** Wartość cross-checku =
+  pokazanie konsensusu vs rozbieżności. Smoothowanie ich ("wszyscy
+  mniej-więcej widzieli to samo") gubi sygnał.
+- **Próba parsowania RUN_LOG** zamiast czytania `$OUT`. RUN_LOG to
+  capture pane'a (z ANSI codami i bannerami) — do debug only.
+  Plik review (OUT) ma czysty markdown, zapisany przez CLI write tool.
+- **Pominięcie `which codex && which opencode && which claude && which tmux`
+  na starcie.** Lepiej powiedzieć od razu czego brakuje zamiast startować
+  niekompletny pipeline.
+- **Zmiana review przy zapisie/displayu.** Pliki + display pokazują
+  **dosłownie** to co zwróciły narzędzia. Bez parafraz, bez "skróciłem".
   Twoja synteza idzie do osobnej sekcji "Cross-check".
-- **Wieczne czekanie na wiszący proces.** Jeśli `TaskOutput`
-  z timeoutem 600s nadal zwraca `running`, decyzja należy do
-  usera, nie do Ciebie. Pokaż co masz, zapytaj.
-- **Próba zabicia procesu samodzielnie (`pkill`, `kill`).** User
-  może chcieć debugować czemu wisi. Zatrzymaj się i zapytaj
-  zanim będziesz coś ubijał.
+- **Pominięcie ogłoszenia 3 attach commands na starcie.** Sens refactora
+  to observability — user musi wiedzieć **przed** rozpoczęciem polling-u
+  jakie sesje może podłączyć. Drukuj 3 commands wprost zaraz po
+  `tmux new-session`, NIE dopiero po zakończeniu polling-u.
+- **Brak `tmux kill-session` w cleanup trap.** Jeśli user wciska Ctrl-C
+  w głównym agencie, polling przerwie się ale tmux sessions żyją dalej
+  z 3 CLI w środku. Trap MUSI zabić wszystkie 3 sesje.
+- **Czytanie OUT-ów PRZED zakończeniem polling-u.** Plik może być
+  niekompletny gdy CLI nadal pisze. ZAWSZE czekaj aż polling loop
+  skończy się (wszystkie tmux has-session = false) zanim `Read` OUT.

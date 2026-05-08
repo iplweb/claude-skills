@@ -2,6 +2,27 @@
 
 All releases follow [CalVer](https://calver.org/) — `YYYY.0M.MICRO`. The marketplace and all plugins ship in lockstep: every release re-tags every plugin with the same version.
 
+## 2026.05.3 — 2026-05-08
+
+Patch release: `code-review-external` family rewritten to dispatch every reviewer (codex / opencode / claude) inside its own attachable `tmux` session, with a stuck-detector that aborts after 90 s of no log growth instead of hanging for 15+ min on a wedged provider.
+
+### Changed
+- **`code-review-external` family** — all four skills (`code-review-codex`, `code-review-opencode`, `code-review-claude`, `code-review-external`) now run their underlying CLI inside a detached tmux session named `cr-{tool}-{TS}`. Users can `tmux attach -t cr-{tool}-{TS}` at any point to watch a reviewer live. Pane output is captured to `/tmp/code-review-{tool}-{TS}.log` via `tmux pipe-pane` while the reviewer writes its final markdown to `/tmp/code-review-{tool}-{TS}.md` (artifact-file pattern preserved).
+- **`code-review-claude`** — switched from `Agent`-tool subagent dispatch to a headless `claude -p` process inside tmux. Uses `--permission-mode auto`, `--add-dir /tmp`, `--add-dir <project>`, `--allowedTools "Read Grep Glob Bash Write Edit"`. Three reviewers now share identical lifecycle (tmux session) instead of mixing tmux + Agent.
+- **`code-review-external` wrapper** — replaced `Bash run_in_background` + `TaskOutput x3` orchestration with a single bash command that creates three tmux sessions, prints three attach commands up-front, and runs one combined polling loop (`tmux has-session` × 3, per-session stuck detector, hard 600 s deadline). Simpler model, no `pkill`, deterministic kill via `tmux kill-session`.
+- **`code-review-codex`** — switched from `codex review` to `codex exec --skip-git-repo-check --sandbox workspace-write`. The old `codex review` lacks `--skip-git-repo-check` and crashed in non-git directories with `Not inside a trusted directory`; `codex exec` works in both git and non-git contexts.
+
+### Added
+- New shared file `plugins/code-review-external/shared/tmux-runner.md` — universal tmux launch + polling pattern referenced by all four leaf/wrapper skills (naming convention, `printf %q`-based runner script, `tmux pipe-pane` capture, stuck-detector loop, combined-poll variant for the wrapper).
+- `--print-logs` flag added to opencode invocations so the bootstrap stage is visible in the pane (and in `RUN_LOG`) instead of buffered into silence — makes auth/network hangs diagnosable in real time.
+
+### Fixed
+- Opencode reviews on machines where the model API is slow or wedged no longer wait 15+ min in silence — stuck detector kills the tmux session after 90 s of zero log growth and reports last log lines to the user.
+- Codex reviews of design docs in fresh / non-git directories (e.g. `SPEC.md` in a brand-new project folder) no longer crash with `Not inside a trusted directory and --skip-git-repo-check was not specified`.
+
+### Requires
+- `tmux` ≥ 3.0 in `$PATH` for all `code-review-external` skills (preflight `which tmux`; abort with install hint if missing). Install: `brew install tmux` / `apt install tmux`.
+
 ## 2026.05.2 — 2026-05-08
 
 Major release: one new plugin, big rewrites across `python-upgrade-package` and `oss-github-publisher`, DRY refactor across the multi-CLI families, HTML reports for `premortem-multiple`, and a `setuptools.build_meta` build-backend bug fix that quietly broke every previous run of `python-upgrade-package`.

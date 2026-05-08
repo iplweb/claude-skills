@@ -1,7 +1,7 @@
 {
   "name": "python2-cleanup",
   "description": "Removes Python 2 compatibility cruft from a Python 3 codebase — six, __future__, unicode(), basestring, xrange, iteritems, dict.has_key(), python_2_unicode_compatible, u'' prefix, __metaclass__, stdlib renames",
-  "version": "2026.05.2",
+  "version": "2026.05.3",
   "author": {
     "name": "Michal Pasternak"
   },
