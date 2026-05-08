@@ -87,7 +87,7 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
    ```toml
    [build-system]
    requires = ["setuptools>=75.0"]
-   build-backend = "setuptools.backends._legacy:_Backend"
+   build-backend = "setuptools.build_meta"
 
    [project]
    name = "<package-name>"
@@ -320,7 +320,7 @@ Regardless of tool choice, ensure the version is defined in exactly ONE place:
 ```toml
 [build-system]
 requires = ["setuptools>=75.0", "setuptools-scm>=8"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 dynamic = ["version"]
@@ -445,12 +445,24 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
 2. **Add ruff configuration to `pyproject.toml`** (minimal, non-invasive):
    ```toml
    [tool.ruff]
-   target-version = "py310"
+   # Derive from requires-python lowest: ">=3.10" → "py310", ">=3.9" → "py39", etc.
+   # SAME source as Step 4 Python matrix — never hardcode.
+   target-version = "py310"  # ← REQUIRED: replace with derived value matching requires-python floor
 
    [tool.ruff.lint]
    select = ["E", "F", "W"]  # basic flake8-equivalent rules only
    # Do NOT enable aggressive rules (I, UP, etc.) — goal is to catch errors, not reformat
    ```
+
+   `target-version` derivation table (mirror of Step 4.2a):
+
+   | `requires-python` | ruff `target-version` | pyupgrade `--py-plus` |
+   |---|---|---|
+   | `>=3.9` | `"py39"` | `--py39-plus` |
+   | `>=3.10` | `"py310"` | `--py310-plus` |
+   | `>=3.11` | `"py311"` | `--py311-plus` |
+   | `>=3.12` | `"py312"` | `--py312-plus` |
+   | `>=3.13` | `"py313"` | `--py313-plus` |
 
    **Do NOT** add `[tool.ruff.format]` section — let ruff-format use its defaults. This avoids opinionated formatting config that creates noise.
 
@@ -654,7 +666,9 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
            uses: astral-sh/setup-uv@v5
 
          - name: Set up Python
-           run: uv python install 3.13  # ← replace with the highest version from your derived Python matrix
+           # REQUIRED: replace HIGHEST_PY with the highest version from your derived Python matrix (Step 2a)
+           # If left literal, `uv python install` will fail loudly — that's intentional.
+           run: uv python install HIGHEST_PY
 
          - name: Install dependencies
            run: uv sync --all-extras

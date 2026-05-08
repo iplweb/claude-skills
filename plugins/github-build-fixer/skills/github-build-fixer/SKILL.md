@@ -203,21 +203,29 @@ git push -u origin "$(git branch --show-current)"
 
 ## Step 6: Poll for CI Result
 
-After pushing, poll until the new run completes:
+After pushing, poll until the new run completes. **Do NOT use `sleep`** — instead poll for the run ID and use `gh run watch` (which itself polls).
 
 ```bash
-# Wait a few seconds for GitHub to register the push event
-sleep 5
-
-# Find the new run triggered by our push
 BRANCH=$(git branch --show-current)
-NEW_RUN_ID=$(gh run list --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId')
+PUSH_SHA=$(git rev-parse HEAD)
 
-# Watch it
+# Poll for the run triggered by our push (up to ~30s — usually appears within 5s)
+for _ in 1 2 3 4 5 6; do
+  NEW_RUN_ID=$(gh run list --branch "$BRANCH" --limit 5 --json databaseId,headSha \
+    --jq ".[] | select(.headSha == \"$PUSH_SHA\") | .databaseId" | head -1)
+  [ -n "$NEW_RUN_ID" ] && break
+done
+
+if [ -z "$NEW_RUN_ID" ]; then
+  echo "No run found for $PUSH_SHA after 30s — workflow may not trigger on this branch/event"
+  exit 1
+fi
+
+# Watch it (this is a long-running command — set Bash timeout to 1800000 ms / 30 min)
 gh run watch "$NEW_RUN_ID" --exit-status
 ```
 
-`gh run watch` streams live output and exits with 0 on success, non-zero on failure.
+`gh run watch` streams live output and exits with 0 on success, non-zero on failure. **Set the Bash tool's `timeout` parameter to 1800000 ms** (30 min) for this call — typical CI runs are 3-15 min, but slow matrices can hit 25 min. Default 2-min Bash timeout will kill the watch prematurely.
 
 ### If the new run succeeds (green):
 
