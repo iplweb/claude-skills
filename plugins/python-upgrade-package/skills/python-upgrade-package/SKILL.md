@@ -51,7 +51,7 @@ Before any changes, gather intel. Read and report:
    - `python -m unittest` or `unittest.main()` patterns
    - `manage.py test` → Django
    - `tox.ini` — is it only for test running, or does it configure other things?
-4. **Django detection:** Does `manage.py` exist? Is `django` in dependencies?
+4. **Django detection:** Does `manage.py` exist? Is `django` in dependencies? If yes, capture the **Django version constraint** (e.g., `>=4.2,<6`) — needed in Step 4 to build the Django × Python test matrix.
 5. **Pre-commit:** Does `.pre-commit-config.yaml` exist? What hooks are configured?
 6. **Python version constraints:** What does `python_requires` / `requires-python` say?
 7. **Version management:** How is the package version defined? Look for:
@@ -397,7 +397,54 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
    - Services (databases, redis, etc.)
    - Deploy configuration (note but do NOT migrate deploys — too risky, flag for user)
 
-2. **Create `.github/workflows/tests.yml`:**
+2. **Derive the test matrix from project config — never hardcode**
+
+   ### 2a. Python version matrix
+
+   Read `requires-python` from `pyproject.toml` and expand it into a sorted list of `"MAJOR.MINOR"` strings:
+   - `>=3.10` → every minor from 3.10 up to the latest stable Python (inclusive)
+   - `>=3.9,<3.13` → `["3.9", "3.10", "3.11", "3.12"]`
+   - `~=3.10.0` → `["3.10"]` only (PEP 440 compatible release: `>=3.10.0,<3.11.0`)
+   - `>=3.10,<4` → effectively `>=3.10` — every minor from 3.10 up to latest stable
+
+   Determine the latest stable Python at runtime (do NOT hardcode):
+   ```bash
+   curl -s https://endoflife.date/api/python.json \
+     | python -c "import sys, json; data = json.load(sys.stdin); rows = [d for d in data if d.get('eol') is not True]; print(max(r['cycle'] for r in rows))"
+   ```
+   If offline, use the most recent stable you know and ask the user to verify before committing.
+
+   ### 2b. Django version matrix (Django projects only)
+
+   For Django projects, also derive a matrix of Django versions:
+   1. Read the Django version constraint from `pyproject.toml` `dependencies` (collected in Step 0)
+   2. Use the canonical Django × Python compatibility table (below)
+   3. Compute valid `(python, django)` pairs as the **intersection** of:
+      - Python versions allowed by `requires-python`
+      - Django versions allowed by the project's Django constraint
+      - Pairs marked supported in the canonical matrix
+
+   **Canonical Django × Python compatibility matrix:**
+
+   Authoritative source: <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>
+
+   This table is a snapshot — re-check the source whenever you run this skill, because Django ships new versions and Python EOLs change.
+
+   | Django  | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                       |
+   |---------|-----|------|------|------|------|------|------------------------------|
+   | 4.2 LTS | —   | ✓    | ✓    | ✓    | —    | —    | Extended support to Apr 2026 |
+   | 5.0     | —   | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                 |
+   | 5.1     | —   | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                 |
+   | 5.2 LTS | —   | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS                   |
+
+   **Filter aggressively:** drop EOL Django versions unless the project's constraint explicitly demands them. If `dependencies = ["django>=4.2"]`, the matrix should typically be just `4.2 LTS` and `5.2 LTS` — skip 5.0 and 5.1 (already EOL), unless the user opts in.
+
+   Add the resulting table to the project README so users can see at a glance which combinations are tested. (For polished README work — badges, install instructions, rationale — cross-reference the `readme-guardian` skill.)
+
+3. **Create `.github/workflows/tests.yml`** using the matrix derived in Step 2.
+
+   **For pure-Python projects** (no Django):
+
    ```yaml
    name: Tests
 
@@ -411,8 +458,10 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
      test:
        runs-on: ubuntu-latest
        strategy:
+         fail-fast: false
          matrix:
-           python-version: ["3.10", "3.11", "3.12", "3.13"]
+           # Derived from requires-python in pyproject.toml — DO NOT hardcode.
+           python-version: ["3.10", "3.11", "3.12", "3.13"]  # ← replace with your derived list
 
        steps:
          - uses: actions/checkout@v4
@@ -430,11 +479,62 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
            run: uv run pytest
    ```
 
+   **For Django projects** — use `include:` style with explicit `(python, django)` pairs derived in Step 2b:
+
+   ```yaml
+   name: Tests
+
+   on:
+     push:
+       branches: [master, main]
+     pull_request:
+       branches: [master, main]
+
+   jobs:
+     test:
+       runs-on: ubuntu-latest
+       strategy:
+         fail-fast: false
+         matrix:
+           # Derived from requires-python + Django constraint + canonical compat matrix.
+           # DO NOT hardcode — recompute every time this skill runs.
+           include:
+             - { python-version: "3.10", django-version: "4.2" }
+             - { python-version: "3.11", django-version: "4.2" }
+             - { python-version: "3.12", django-version: "4.2" }
+             - { python-version: "3.10", django-version: "5.2" }
+             - { python-version: "3.11", django-version: "5.2" }
+             - { python-version: "3.12", django-version: "5.2" }
+             - { python-version: "3.13", django-version: "5.2" }
+             - { python-version: "3.14", django-version: "5.2" }
+
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Install uv
+           uses: astral-sh/setup-uv@v5
+
+         - name: Set up Python ${{ matrix.python-version }}
+           run: uv python install ${{ matrix.python-version }}
+
+         - name: Install dependencies (project + Django ${{ matrix.django-version }})
+           run: |
+             uv sync --all-extras
+             uv pip install "django~=${{ matrix.django-version }}.0"
+
+         - name: Run tests
+           env:
+             DJANGO_SETTINGS_MODULE: <detected settings module>
+           run: uv run pytest
+   ```
+
+   `~=X.Y.0` pins to that minor series (e.g., `~=4.2.0` → `>=4.2.0,<4.3.0`).
+
    **Adapt based on Travis config:**
    - If Travis had services (postgres, redis), add corresponding GH Actions service containers
    - If Travis had environment variables, add them as `env:` in the workflow
    - If Travis had `before_install` / `before_script` commands, translate to additional steps
-   - If the project is Django, set `DJANGO_SETTINGS_MODULE` in env
+   - For Django, set `DJANGO_SETTINGS_MODULE` in `env:` (detect from `manage.py`, `tox.ini`, or existing CI config)
 
    **Deploy steps:** Do NOT migrate Travis deploy config automatically. Instead, add a comment:
    ```yaml
@@ -444,7 +544,7 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
    ```
    And warn the user explicitly.
 
-3. **Add lint job (informational only):**
+4. **Add lint job (informational only):**
    ```yaml
      lint:
        runs-on: ubuntu-latest
@@ -455,7 +555,7 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
            uses: astral-sh/setup-uv@v5
 
          - name: Set up Python
-           run: uv python install 3.13
+           run: uv python install 3.13  # ← replace with the highest version from your derived Python matrix
 
          - name: Install dependencies
            run: uv sync --all-extras
@@ -469,25 +569,34 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
 
    Note the `|| true` — lint is informational only, never blocks CI. This is intentional: we don't want to force reformatting the entire codebase just to get green CI.
 
-4. **Update README badges:**
+5. **Update README badges:**
    - Find Travis badge: `[![Build Status](https://travis-ci.org/...` or `[![Build Status](https://travis-ci.com/...`
    - Replace with GitHub Actions badge:
      ```markdown
      [![Tests](https://github.com/OWNER/REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/tests.yml)
      ```
+   - Replace any hardcoded Python version badge with one derived from the matrix:
+     ```markdown
+     ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
+     ```
+   - For Django projects, add a Django version badge similarly:
+     ```markdown
+     ![Django](https://img.shields.io/badge/django-4.2%20%7C%205.2-blue)
+     ```
    - Detect OWNER/REPO from git remote or Travis badge URL
+   - For full README polish (rationale, install instructions, complete version-support matrix table), cross-reference the `readme-guardian` skill — that skill specializes in README quality
 
-5. **Delete `.travis.yml`**
+6. **Delete `.travis.yml`**
 
-6. **Commit:**
+7. **Commit:**
    ```
    Migrate CI from Travis CI to GitHub Actions
 
-   - Created .github/workflows/tests.yml with Python 3.10-3.13 matrix
+   - Created .github/workflows/tests.yml with matrix derived from requires-python<and Django version constraint, if applicable>
    - Using uv for dependency installation
    - Added informational-only ruff lint job (non-blocking)
    - Removed .travis.yml
-   - Updated README CI badge
+   - Updated README badges (CI + Python<+ Django>)
    ```
 
 ---
@@ -696,6 +805,9 @@ Commits created: <count>
 | Leaving version defined in multiple places | Grep for `__version__` and `version =` — consolidate to one source |
 | Setting up setuptools-scm without a git tag | The current version MUST have a tag, or setuptools-scm will generate `0.0.0` |
 | Choosing a version tool without asking the user | Always present options and let user decide |
+| Hardcoding the Python matrix in tests.yml | Always derive from `requires-python` — recompute every run, never copy a previous workflow's list |
+| Hardcoding Django × Python pairs without checking the canonical table | Re-check the Django docs every run; drop EOL Django releases unless the project explicitly requires them |
+| Forgetting to add the Django × Python matrix table to README | If the project depends on Django, the README MUST show which combinations are tested — readers expect it |
 
 ## Red Flags — STOP
 
@@ -705,3 +817,6 @@ Commits created: <count>
 - "I'll skip the user confirmation, it's obvious" — **NO.** Every step needs confirmation.
 - "The deploy config is simple, I'll migrate it too" — **NO.** Flag it, don't touch it.
 - "I'll run the formatter once to establish a baseline" — **NO.** That's a massive diff on existing code.
+- "I'll just keep `["3.10", "3.11", "3.12", "3.13"]` since that's what the example shows" — **NO.** Derive from `requires-python`. The example is a placeholder, not a default.
+- "The Django docs probably haven't changed since the canonical table was written" — **NO.** Re-check <https://docs.djangoproject.com/en/dev/faq/install/> every run. Django releases are frequent.
+- "This project's Django constraint is loose, I'll just test against the latest Django" — **NO.** Test against every supported (Python, Django) pair within the project's constraints.
