@@ -106,10 +106,12 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
        "Programming Language :: Python :: 3.11",
        "Programming Language :: Python :: 3.12",
        "Programming Language :: Python :: 3.13",
-       # For Django projects, also add:
+       # For Django projects, also add (mirror the per-project Django matrix —
+       # don't include EOL series like 4.2/5.0/5.1 unless the project explicitly
+       # supports them):
        # "Framework :: Django",
-       # "Framework :: Django :: 4.2",
        # "Framework :: Django :: 5.2",
+       # "Framework :: Django :: 6.0",
    ]
    dependencies = [
        # from install_requires / requirements.txt
@@ -534,7 +536,7 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
       - Python versions allowed by `requires-python`
       - Django versions allowed by the project's Django constraint
       - Pairs marked supported in the canonical matrix
-   4. **Filter aggressively:** drop EOL Django versions unless the project's constraint explicitly demands them. For `dependencies = ["django>=4.2"]`, the matrix should typically be just `4.2 LTS` and `5.2 LTS` — skip 5.0 and 5.1 (already EOL), unless the user opts in.
+   4. **Filter aggressively:** drop EOL Django versions unless the project's constraint explicitly demands them. As of 2026-05-08 only **5.2 LTS** and **6.0** are upstream-supported; 4.2/5.0/5.1 are all EOL. So for `dependencies = ["django>=4.2"]` the matrix should typically be just `5.2 LTS` and `6.0` (skip 4.2/5.0/5.1 unless the user opts in to keep an EOL series alive). Re-check upstream every run — `readme-guardian`'s snapshot is dated.
 
    The authoritative upstream is <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>; the `readme-guardian` snapshot is what gets checked against it. **Do not maintain a copy of the table in this skill** — that would re-introduce the cross-skill drift this delegation was created to fix.
 
@@ -597,15 +599,19 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
          matrix:
            # Derived from requires-python + Django constraint + canonical compat matrix.
            # DO NOT hardcode — recompute every time this skill runs.
+           # Example below: project allows django>=4.2 + python>=3.10. As of 2026-05-08
+           # only 5.2 LTS and 6.0 are upstream-supported, so 4.2/5.0/5.1 are dropped.
            include:
-             - { python-version: "3.10", django-version: "4.2" }
-             - { python-version: "3.11", django-version: "4.2" }
-             - { python-version: "3.12", django-version: "4.2" }
+             # Django 5.2 LTS (Python 3.10–3.14)
              - { python-version: "3.10", django-version: "5.2" }
              - { python-version: "3.11", django-version: "5.2" }
              - { python-version: "3.12", django-version: "5.2" }
              - { python-version: "3.13", django-version: "5.2" }
              - { python-version: "3.14", django-version: "5.2" }
+             # Django 6.0 (Python 3.12–3.14 only)
+             - { python-version: "3.12", django-version: "6.0" }
+             - { python-version: "3.13", django-version: "6.0" }
+             - { python-version: "3.14", django-version: "6.0" }
 
        steps:
          - uses: actions/checkout@v4
@@ -680,9 +686,9 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
      ```markdown
      ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
      ```
-   - For Django projects, add a Django version badge similarly:
+   - For Django projects, add a Django version badge similarly (use only currently-supported series — drop EOL ones unless the project explicitly keeps them):
      ```markdown
-     ![Django](https://img.shields.io/badge/django-4.2%20%7C%205.2-blue)
+     ![Django](https://img.shields.io/badge/django-5.2%20%7C%206.0-blue)
      ```
    - Detect OWNER/REPO from git remote or Travis badge URL
    - For full README polish (rationale, install instructions, complete version-support matrix table), cross-reference the `readme-guardian` skill — that skill specializes in README quality
@@ -748,21 +754,18 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
 
 5. **Handle Django migration:**
    - Add `pytest-django` to dev dependencies
-   - Create `conftest.py` at project root (if it doesn't exist) with:
-     ```python
-     import django
-     from django.conf import settings
-
-     django_settings_module = "<detected>"
-
-     def pytest_configure(config):
-         settings.DJANGO_SETTINGS_MODULE = django_settings_module
-         django.setup()
-     ```
-   - Or use the simpler `pyproject.toml` approach:
+   - **Preferred:** configure via `pyproject.toml` — pytest-django reads this on its own, no `conftest.py` plumbing needed:
      ```toml
      [tool.pytest.ini_options]
      DJANGO_SETTINGS_MODULE = "<detected>"
+     ```
+   - **Only if `pyproject.toml` config is not viable** (e.g., the project genuinely needs to run code before `django.setup()`): create `conftest.py` at project root using the env var approach — `django.conf.settings` is a `LazySettings` proxy, so assigning `settings.DJANGO_SETTINGS_MODULE = "..."` does NOT configure Django and will fail with `ImproperlyConfigured` once `django.setup()` runs:
+     ```python
+     import os
+     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "<detected>")
+
+     import django
+     django.setup()
      ```
 
 6. **Handle tox.ini:**

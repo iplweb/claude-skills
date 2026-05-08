@@ -203,17 +203,22 @@ git push -u origin "$(git branch --show-current)"
 
 ## Step 6: Poll for CI Result
 
-After pushing, poll until the new run completes. **Do NOT use `sleep`** — instead poll for the run ID and use `gh run watch` (which itself polls).
+After pushing, poll until the new run completes. **Do NOT busy-loop with `sleep` for the long CI watch** — use `gh run watch`, which itself streams events instead of polling on a timer. The only place `sleep` is appropriate here is the short window between push and run registration (5–30s), where a one-shot retry loop with `sleep 5` is necessary because GH needs a moment to materialize the run.
 
 ```bash
 BRANCH=$(git branch --show-current)
 PUSH_SHA=$(git rev-parse HEAD)
 
-# Poll for the run triggered by our push (up to ~30s — usually appears within 5s)
+# Poll for the run triggered by our push (up to ~30s — usually appears within 5s).
+# `sleep 5` between iterations is REQUIRED — without it the loop fires 6 queries in
+# under a second and exits before GH has a chance to register the workflow run, so
+# `NEW_RUN_ID` ends up empty for fast-but-not-instant cases. The Step 1 prohibition
+# on `sleep` covers long CI watch loops, not short materialization waits.
 for _ in 1 2 3 4 5 6; do
   NEW_RUN_ID=$(gh run list --branch "$BRANCH" --limit 5 --json databaseId,headSha \
     --jq ".[] | select(.headSha == \"$PUSH_SHA\") | .databaseId" | head -1)
   [ -n "$NEW_RUN_ID" ] && break
+  sleep 5
 done
 
 if [ -z "$NEW_RUN_ID" ]; then

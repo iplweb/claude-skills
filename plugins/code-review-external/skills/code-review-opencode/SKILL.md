@@ -57,8 +57,8 @@ deny, task/webfetch/websearch deny. Trap (EXIT/INT/TERM) przywraca
 poprzedni config (jeśli był) albo usuwa nasz plik.
 
 Dużo bezpieczniejsze niż `--dangerously-skip-permissions`:
-- Read wszystko OK; pisanie ZABLOKOWANE poza `/tmp/code-review-*`.
-- Bash tylko `git/ls/find/cat/head/tail/wc/rg/grep` — żadnych destrukcji.
+- Read: cały projekt OK, ale denylista pokrywa root + dowolny podkatalog (`**/...`) dla: `.env*`, kluczy prywatnych (`*.pem`, `*.key`, `id_rsa*`, `id_dsa*`, `id_ed25519*`, `id_ecdsa*`), pakietów kluczy (`*.p12`, `*.pfx`, `*.keystore`, `*.jks`), credentiali (`credentials.json`, `*credentials*.json`, `service-account*.json`) i registry creds (`.npmrc`, `.pypirc`, `.netrc`). Każdy wzór jest dwa razy — raz bez `**/` (root), raz z `**/` (nested) — bo opencode pattern matching nie cross-slash-uje pojedynczym `*`. Pisanie ZABLOKOWANE poza `/tmp/code-review-*`.
+- Bash zawężony do **wyłącznie read-only listujących** `git` verbs **bez wildcardów które puszczałyby `--output`**: `git status`/`git status *`, `git log` (no-args = ostatni commit), `git show` (no-args = HEAD), `git ls-files`/`git ls-files *`, `git rev-parse`/`git rev-parse *`, `git branch` (no-args = lista lokalnych), `git tag` (no-args = lista tagów), `ls`/`ls *`. Wszystko inne → permission denied. **Czemu `git log`/`git show` BEZ wildcardów?** Bo `git log --output=PATH` i `git show --output=PATH` zapisują plik (potwierdzone empirycznie) — to bypass `edit` policy poprzez bash. Bez argumentów oba listują (log = ostatni commit; show = HEAD), bezpieczne. **Czemu nie `git diff`?** Bo `git diff --no-index FILE1 FILE2` czyta DOWOLNY plik z systemu (potwierdzone: `git diff --no-index /etc/hosts /dev/null` dumpuje zawartość) — bypass `external_directory: deny`. Diff dla trybów `uncommitted`/`commit` pre-computuje wrapper. **Czemu `git branch`/`tag` bez argumentów?** Bo `git branch -D foo`, `git tag -d v1`, `git branch new` — wszystkie matchują `git branch *` / `git tag *` i mutują `.git/`. **Czemu nie `cat`/`find`/`grep`/`rg`/`head`/`tail`/`wc`?** Bo opencode ma natywne `read`/`glob`/`grep` tools, które respektują path policy (deny dla sekretów). Bash `cat .env` byłby out-of-band bypass-em — usunęliśmy go.
 - External_directory deny — opencode nie wyjedzie poza projekt.
 - Task deny — żadnych subagentów (deterministyczne zachowanie).
 - Webfetch/websearch deny — analiza offline z plików.
@@ -77,23 +77,71 @@ Dużo bezpieczniejsze niż `--dangerously-skip-permissions`:
   "permission": {
     "read": {
       "*": "allow",
-      "*.env": "deny",
-      "*.env.*": "deny",
-      "*.env.example": "allow"
+      ".env": "deny",
+      ".env.*": "deny",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      ".env.example": "allow",
+      "**/.env.example": "allow",
+      "*.pem": "deny",
+      "**/*.pem": "deny",
+      "*.key": "deny",
+      "**/*.key": "deny",
+      "*.p12": "deny",
+      "**/*.p12": "deny",
+      "*.pfx": "deny",
+      "**/*.pfx": "deny",
+      "*.keystore": "deny",
+      "**/*.keystore": "deny",
+      "*.jks": "deny",
+      "**/*.jks": "deny",
+      "id_rsa": "deny",
+      "id_rsa.*": "deny",
+      "**/id_rsa": "deny",
+      "**/id_rsa.*": "deny",
+      "id_dsa": "deny",
+      "id_dsa.*": "deny",
+      "**/id_dsa": "deny",
+      "**/id_dsa.*": "deny",
+      "id_ed25519": "deny",
+      "id_ed25519.*": "deny",
+      "**/id_ed25519": "deny",
+      "**/id_ed25519.*": "deny",
+      "id_ecdsa": "deny",
+      "id_ecdsa.*": "deny",
+      "**/id_ecdsa": "deny",
+      "**/id_ecdsa.*": "deny",
+      "credentials.json": "deny",
+      "**/credentials.json": "deny",
+      "*credentials*.json": "deny",
+      "**/*credentials*.json": "deny",
+      "service-account*.json": "deny",
+      "**/service-account*.json": "deny",
+      "*-service-account*.json": "deny",
+      "**/*-service-account*.json": "deny",
+      ".npmrc": "deny",
+      "**/.npmrc": "deny",
+      ".pypirc": "deny",
+      "**/.pypirc": "deny",
+      ".netrc": "deny",
+      "**/.netrc": "deny"
     },
     "glob": "allow",
     "grep": "allow",
     "bash": {
       "*": "deny",
-      "git *": "allow",
-      "ls *": "allow",
-      "find *": "allow",
-      "wc *": "allow",
-      "cat *": "allow",
-      "head *": "allow",
-      "tail *": "allow",
-      "rg *": "allow",
-      "grep *": "allow"
+      "git status": "allow",
+      "git status *": "allow",
+      "git log": "allow",
+      "git show": "allow",
+      "git ls-files": "allow",
+      "git ls-files *": "allow",
+      "git rev-parse": "allow",
+      "git rev-parse *": "allow",
+      "git branch": "allow",
+      "git tag": "allow",
+      "ls": "allow",
+      "ls *": "allow"
     },
     "edit": {
       "*": "deny",
@@ -113,6 +161,48 @@ Dużo bezpieczniejsze niż `--dangerously-skip-permissions`:
 i `/tmp/premortem-*` (drugi żeby ten sam mechanizm działał dla
 `premortem-opencode`). Wszystko inne → deny → opencode dostaje
 "permission denied" i nie ma jak coś zepsuć ani się zawiesić.
+
+**Czemu `git *` jest rozbity na konkretne verby zamiast jednego wildcardu?**
+Blanket `"git *": "allow"` puszczałby też `git checkout HEAD~5 -- /etc/passwd`,
+`git clean -fdx`, `git reset --hard`, `git config user.email evil@x`, etc.
+Whitelist konkretnych verbów domyka tę dziurę.
+
+**Czemu `git log` / `git show` BEZ wildcardów?** Bo oba akceptują flagę
+`--output=PATH` która zapisuje output do pliku (potwierdzone empirycznie:
+`git log --output=/tmp/out.txt -1` tworzy plik). To bypass `edit` policy
+przez bash — model mógłby napisać dowolny plik w cwd albo `/tmp`. Glob
+nie pozwala wyrazić "any flag except `--output`", więc dropujemy
+wildcardy. No-args formy są bezpieczne: `git log` = ostatni commit,
+`git show` = HEAD jako patch.
+
+**Czemu nie ma `git diff` / `git diff *`?** Bo `git diff --no-index FILE1 FILE2`
+czyta dowolne pliki spoza repo (i poza `external_directory` policy):
+`git diff --no-index /etc/hosts /dev/null` dumpuje zawartość `/etc/hosts`
+do stdout. Glob nie pozwala wyrazić "any flag except `--no-index`",
+więc dropujemy `git diff` w ogóle. Diff dla `uncommitted`/`commit` pre-computuje
+wrapper; w `free` mode model czyta pliki przez natywny `read` tool (który
+respektuje denylistę).
+
+**Czemu `git branch` i `git tag` BEZ wildcardów?** Bo `git branch -D foo`,
+`git branch new`, `git tag -d v1`, `git tag new` — wszystkie matchowałyby
+`git branch *` / `git tag *` i mutują `.git/`. Bez argumentów obie komendy
+listują (`git branch` → bieżąca + lokalne, `git tag` → wszystkie tagi). Jeśli
+model potrzebuje więcej info, niech czyta `.git/refs/` przez `read` tool
+(opencode-owy, z polityką ścieżki).
+
+**Czemu read denylista ma każdy wzór dwa razy (raz bez `**/`, raz z `**/`)?**
+Bo opencode pattern matching nie cross-slash-uje pojedynczym `*`. Wzór
+`id_rsa` matchuje TYLKO root-level plik o tej nazwie; `secrets/id_rsa`
+przepuści przez `"*": "allow"`. Żeby pokryć podkatalogi, dodatkowo wpisujemy
+`**/id_rsa`. Tak samo dla każdej pozycji denylisty. Brak tej duplikacji w
+poprzedniej iteracji oznaczał, że `secrets/.npmrc` albo `packages/app/.env`
+przechodziły mimo `.npmrc` / `.env` deny.
+
+**Czemu nie ma `cat`/`find`/`grep`/`rg`/`head`/`tail`/`wc`?** Bo opencode ma
+natywne `read`/`glob`/`grep` tools, które respektują path policy (deny dla
+sekretów). Bash `cat .env` byłby out-of-band bypass-em — usunęliśmy go. Jak
+opencode chce odczytać plik, używa `read` (z denylistą); jak chce listę
+plików, używa `glob`; jak chce search-a, `grep`.
 
 ## Pełny wrapper bash (config + trap + tmux + polling)
 
@@ -151,23 +241,71 @@ cat > "$CFG_PATH" <<'OPENCODE_CFG'
   "permission": {
     "read": {
       "*": "allow",
-      "*.env": "deny",
-      "*.env.*": "deny",
-      "*.env.example": "allow"
+      ".env": "deny",
+      ".env.*": "deny",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      ".env.example": "allow",
+      "**/.env.example": "allow",
+      "*.pem": "deny",
+      "**/*.pem": "deny",
+      "*.key": "deny",
+      "**/*.key": "deny",
+      "*.p12": "deny",
+      "**/*.p12": "deny",
+      "*.pfx": "deny",
+      "**/*.pfx": "deny",
+      "*.keystore": "deny",
+      "**/*.keystore": "deny",
+      "*.jks": "deny",
+      "**/*.jks": "deny",
+      "id_rsa": "deny",
+      "id_rsa.*": "deny",
+      "**/id_rsa": "deny",
+      "**/id_rsa.*": "deny",
+      "id_dsa": "deny",
+      "id_dsa.*": "deny",
+      "**/id_dsa": "deny",
+      "**/id_dsa.*": "deny",
+      "id_ed25519": "deny",
+      "id_ed25519.*": "deny",
+      "**/id_ed25519": "deny",
+      "**/id_ed25519.*": "deny",
+      "id_ecdsa": "deny",
+      "id_ecdsa.*": "deny",
+      "**/id_ecdsa": "deny",
+      "**/id_ecdsa.*": "deny",
+      "credentials.json": "deny",
+      "**/credentials.json": "deny",
+      "*credentials*.json": "deny",
+      "**/*credentials*.json": "deny",
+      "service-account*.json": "deny",
+      "**/service-account*.json": "deny",
+      "*-service-account*.json": "deny",
+      "**/*-service-account*.json": "deny",
+      ".npmrc": "deny",
+      "**/.npmrc": "deny",
+      ".pypirc": "deny",
+      "**/.pypirc": "deny",
+      ".netrc": "deny",
+      "**/.netrc": "deny"
     },
     "glob": "allow",
     "grep": "allow",
     "bash": {
       "*": "deny",
-      "git *": "allow",
-      "ls *": "allow",
-      "find *": "allow",
-      "wc *": "allow",
-      "cat *": "allow",
-      "head *": "allow",
-      "tail *": "allow",
-      "rg *": "allow",
-      "grep *": "allow"
+      "git status": "allow",
+      "git status *": "allow",
+      "git log": "allow",
+      "git show": "allow",
+      "git ls-files": "allow",
+      "git ls-files *": "allow",
+      "git rev-parse": "allow",
+      "git rev-parse *": "allow",
+      "git branch": "allow",
+      "git tag": "allow",
+      "ls": "allow",
+      "ls *": "allow"
     },
     "edit": {
       "*": "deny",
@@ -255,36 +393,100 @@ wszystkich trybów identyczna.
 ### `uncommitted` (wymaga git repo)
 
 Pre-compute diff i wklej do prompta — opencode w restrictive sandbox
-ma `git *` allow, ale dawanie mu gotowego diff-u jest tańsze (mniej
-tool calls). Diff może być duży — `git diff HEAD --stat` >50 plików:
-ostrzeż userowi, ale wykonaj.
+może odpalić `git diff` sam, ale dawanie mu gotowego diff-u jest
+tańsze (mniej tool calls). Diff może być duży — `git diff HEAD --stat`
+>50 plików: ostrzeż userowi, ale wykonaj.
 
 Przed dispatchem: `git rev-parse --is-inside-work-tree >/dev/null 2>&1`,
 brak repo → stop.
 
 **WAŻNE — nie zassij sekretów:** restrictive config opencode (sekcja
-"Polityka opencode" niżej) blokuje read `.env`, ale pre-compute jest
-wykonywany przez **głównego agenta zanim** ten config w ogóle istnieje.
-Bez filtrów `.env*` z untracked listy + `git diff` trafia 1:1 do prompta
-wysyłanego do API opencode. Wyklucz je explicit:
+"Polityka opencode" niżej) blokuje read `.env*` i innych sekretów,
+ale pre-compute jest wykonywany przez **głównego agenta zanim** ten
+config w ogóle istnieje. Sygnał do prompta zaprojektuj tak, żeby:
 
-```
-DIFF=$(
-  git diff HEAD -- ':(exclude).env' ':(exclude).env.*';
-  git ls-files --others --exclude-standard \
-    | grep -Ev '(^|/)\.env($|\.)' \
-    | xargs -I {} sh -c 'echo "=== UNTRACKED: {} ==="; cat -- "{}"'
+1. **Tracked diff** — wykluczać `.env*` w każdym podkatalogu (bez
+   `glob` `:(exclude).env` matchuje tylko `./env`, sub/.env wycieka).
+2. **Untracked** — NIE wklejać zawartości plików do prompta. Wystarczy
+   lista nazw; opencode sam je odczyta przez natywny `read` tool, który
+   respektuje denylistę (`.env*`, `*.pem`, `*.key`, `id_rsa*`,
+   `credentials.json`, etc.). Wcześniej snippet cat-ował każdy untracked
+   plik filtrując tylko `.env*`, więc każdy `id_rsa`, `*.pem`,
+   `service-account.json` itp. szedł 1:1 do API opencode.
+
+```bash
+# Wspólny zbiór pathspeców-wykluczeń dla tracked diff. Musi być spójny
+# z read denylist w restrictive config (sekcja "Polityka opencode") —
+# wszystko, co opencode ma zablokowane do odczytu, my też wykluczamy
+# z pre-compute, bo ten pipeline biegnie zanim policy jest aktywne.
+SECRET_EXCLUDES=(
+  ':(exclude,glob).env'                  ':(exclude,glob)**/.env'
+  ':(exclude,glob).env.*'                ':(exclude,glob)**/.env.*'
+  ':(exclude,glob)*.pem'                 ':(exclude,glob)**/*.pem'
+  ':(exclude,glob)*.key'                 ':(exclude,glob)**/*.key'
+  ':(exclude,glob)*.p12'                 ':(exclude,glob)**/*.p12'
+  ':(exclude,glob)*.pfx'                 ':(exclude,glob)**/*.pfx'
+  ':(exclude,glob)*.keystore'            ':(exclude,glob)**/*.keystore'
+  ':(exclude,glob)*.jks'                 ':(exclude,glob)**/*.jks'
+  ':(exclude,glob)id_rsa'                ':(exclude,glob)**/id_rsa'
+  ':(exclude,glob)id_rsa.*'              ':(exclude,glob)**/id_rsa.*'
+  ':(exclude,glob)id_dsa'                ':(exclude,glob)**/id_dsa'
+  ':(exclude,glob)id_dsa.*'              ':(exclude,glob)**/id_dsa.*'
+  ':(exclude,glob)id_ed25519'            ':(exclude,glob)**/id_ed25519'
+  ':(exclude,glob)id_ed25519.*'          ':(exclude,glob)**/id_ed25519.*'
+  ':(exclude,glob)id_ecdsa'              ':(exclude,glob)**/id_ecdsa'
+  ':(exclude,glob)id_ecdsa.*'            ':(exclude,glob)**/id_ecdsa.*'
+  ':(exclude,glob)credentials.json'      ':(exclude,glob)**/credentials.json'
+  ':(exclude,glob)*credentials*.json'    ':(exclude,glob)**/*credentials*.json'
+  ':(exclude,glob)service-account*.json' ':(exclude,glob)**/service-account*.json'
+  ':(exclude,glob).npmrc'                ':(exclude,glob)**/.npmrc'
+  ':(exclude,glob).pypirc'               ':(exclude,glob)**/.pypirc'
+  ':(exclude,glob).netrc'                ':(exclude,glob)**/.netrc'
+)
+
+TRACKED=$(git diff HEAD -- "${SECRET_EXCLUDES[@]}")
+
+# Untracked: TYLKO lista nazw (przefiltrowana przez ten sam zbiór
+# wzorców), BEZ zawartości. Opencode czyta każdy plik sam przez `read`
+# tool — denylista w policy zapewnia, że sekrety które przeciekły z
+# filtrowania (np. niestandardowa nazwa) i tak będą odrzucone.
+# NUL-delimited iteration odporna na malicious filenames typu
+# `$(touch evil)` (kontrast: `xargs -I {} sh -c '... {}'` — vulnerable).
+UNTRACKED_LIST=$(
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      .env|.env.*|*/.env|*/.env.*) continue ;;
+      *.pem|*/*.pem|*.key|*/*.key) continue ;;
+      *.p12|*/*.p12|*.pfx|*/*.pfx|*.keystore|*/*.keystore|*.jks|*/*.jks) continue ;;
+      id_rsa|id_rsa.*|*/id_rsa|*/id_rsa.*) continue ;;
+      id_dsa|id_dsa.*|*/id_dsa|*/id_dsa.*) continue ;;
+      id_ed25519|id_ed25519.*|*/id_ed25519|*/id_ed25519.*) continue ;;
+      id_ecdsa|id_ecdsa.*|*/id_ecdsa|*/id_ecdsa.*) continue ;;
+      credentials.json|*/credentials.json) continue ;;
+      *credentials*.json|*/*credentials*.json) continue ;;
+      service-account*.json|*/service-account*.json) continue ;;
+      .npmrc|*/.npmrc|.pypirc|*/.pypirc|.netrc|*/.netrc) continue ;;
+    esac
+    printf '%s\n' "$f"
+  done < <(git ls-files -z --others --exclude-standard)
 )
 ```
 
 Body promptu:
 
 ```
-Poniżej diff niezacommitowanych zmian. Zrób code review.
+Poniżej diff zacommitowanych+staged zmian (tracked) oraz lista
+untracked plików. Treść untracked czytaj sam przez `read` tool —
+sekrety (`.env*`, `*.pem`, `id_rsa*`, etc.) są zablokowane przez
+policy, dostaniesz permission denied i pomijasz dany plik.
 
+Tracked diff:
 ```diff
-${DIFF}
+${TRACKED}
 ```
+
+Untracked (nazwy):
+${UNTRACKED_LIST}
 ```
 
 ### `commit` (wymaga git repo)
@@ -348,9 +550,14 @@ i scope-u który user wskazał — jeśli mówi "security audit", nie
 rób ogólnego review; jeśli mówi "całe repo", przejrzyj ważne
 moduły, nie tylko ostatnie zmiany.
 
-Masz dostęp do read-only komend: `git status`, `git log`,
-`git diff`, `ls`, `find`, `cat`, `grep`, `rg` — używaj ich
-do nawigacji.
+Masz dostęp do bash z bardzo wąską whitelistą: `git status`/`status *`,
+`git log` (no-args), `git show` (no-args), `git ls-files`/`ls-files *`,
+`git rev-parse`/`rev-parse *`, `git branch` (no-args), `git tag` (no-args),
+`ls`/`ls *`. **`git diff`, `git log *`, `git show *`, `git branch *`,
+`git tag *` są zablokowane** (przez `--no-index` / `--output=PATH` /
+mutating verbs). Do czytania plików używaj narzędzia `read` (z denylistą
+sekretów), do listowania `glob`, do search-a `grep` tool — bash-owe
+`cat`/`find`/`grep`/`rg` są zablokowane (one obchodzą path policy).
 ```
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
@@ -361,11 +568,26 @@ Czytaj **`../../shared/write-directive.md`** — wstaw zawartość bloku 1:1 jak
 
 ```
 UWAGA dotycząca permissions w tej sesji:
-- read: cały projekt OK, .env zablokowane.
+- read: cały projekt OK z denylistą sekretów (root i każdy podkatalog
+  przez `**/`): `.env*`, klucze prywatne `*.pem`/`*.key`/`id_rsa*`/
+  `id_dsa*`/`id_ed25519*`/`id_ecdsa*`, pakiety kluczy `*.p12`/`*.pfx`/
+  `*.keystore`/`*.jks`, credentiale `credentials.json`/`*credentials*.json`/
+  `service-account*.json`, registry creds `.npmrc`/`.pypirc`/`.netrc`.
+  Próba odczytu któregoś z tych → permission denied — to zamierzone.
 - glob/grep: cały projekt OK.
-- bash: tylko polecenia read-only (git/ls/find/cat/head/tail/wc/rg/grep).
-  Każda inna komenda → permission denied. NIE próbuj `rm`, `mv`,
-  `chmod`, `npm install`, niczego co modyfikuje.
+- bash: TYLKO `git status`/`status *`, `git log` (no-args), `git show`
+  (no-args), `git ls-files`/`ls-files *`, `git rev-parse`/`rev-parse *`,
+  `git branch` (no-args), `git tag` (no-args), `ls`/`ls *`. Wszystko inne
+  → permission denied. **NIE MA `git diff`** (bo `--no-index` czyta pliki
+  spoza repo) ani `git log */git show *` (bo `--output=PATH` zapisuje plik).
+  Też zablokowane: `git checkout/reset/clean/rm/push/commit/merge/rebase/
+  stash/restore/switch/config`, `git branch *`, `git tag *`, `cat`, `find`,
+  `grep`, `rg`, `head`, `tail`, `wc`, `rm`, `mv`, `chmod`, `npm`.
+  **Do czytania plików używaj narzędzia `read` (NIE `cat`); do listowania
+  `glob` (NIE `find`); do search-a `grep` tool (NIE bash-owy `grep`/`rg`).**
+  Te tools respektują path policy (denylistę sekretów); bash-owe komendy
+  by ją obeszły. Diffy dla bieżącego review są PRE-COMPUTOWANE w prompcie
+  poniżej (jeśli tryb tego wymaga) — nie wywołuj `git diff` sam.
 - write/edit: TYLKO ścieżki `/tmp/code-review-*` i `/tmp/premortem-*`.
   Nigdzie indziej. Nie próbuj zapisać niczego w projekcie.
 - external_directory: deny — nie wyjdziesz poza project root.

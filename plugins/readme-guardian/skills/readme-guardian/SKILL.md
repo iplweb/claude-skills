@@ -225,16 +225,19 @@ Based on user's decision (patch or rewrite), generate the README. Below is the t
 
 Authoritative upstream: <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>
 
-| Django  | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                       |
-|---------|------|------|------|------|------|------------------------------|
-| 4.2 LTS | ✓    | ✓    | ✓    | —    | —    | Extended support to Apr 2026 |
-| 5.0     | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                 |
-| 5.1     | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                 |
-| 5.2 LTS | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS                   |
+**Snapshot as of 2026-05-08.** Re-check upstream every run — Django ships new releases and Python versions hit EOL on a regular cadence; this snapshot drifts.
+
+| Django  | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                                  |
+|---------|------|------|------|------|------|-----------------------------------------|
+| 4.2 LTS | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2026                            |
+| 5.0     | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                            |
+| 5.1     | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                            |
+| 5.2 LTS | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS (extended support Apr 2028)  |
+| 6.0     | —    | —    | ✓    | ✓    | ✓    | Mainstream Aug 2026, extended Apr 2027  |
 
 (Pre-3.10 columns omitted: Python 3.8 and 3.9 are EOL; the modern `requires-python` floor is `>=3.10`. Add columns only if the project explicitly supports older Pythons.)
 
-**Re-check the upstream page each time you run this skill** — Django ships new versions and Python versions hit EOL on a regular cadence; this snapshot drifts.
+**Currently supported Django series (2026-05-08): 5.2 LTS and 6.0.** Everything else in the table is included for historical reference and to help projects decide whether to bump their floor — drop those rows when generating a per-project matrix unless the project's constraint genuinely allows them.
 
 **How to derive the per-project table:**
 1. Read the project's Django version constraint (from `pyproject.toml` `[project] dependencies`)
