@@ -23,35 +23,9 @@ to oddzielne narzędzie `codex` ma podać drugą opinię.
 
 ## Auto-detekcja celu (z argumentu usera)
 
-Argument przychodzi w wiadomości usera po nazwie skilla. Wykryj typ
-**w tej kolejności** (pierwszy match wygrywa):
+Wspólna logika 5 trybów (`uncommitted` / `file` / `dir` / `commit` / `free`) — czytaj **`../../shared/target-detection.md`** (dwa poziomy w górę z tego SKILL.md do plugin root, potem `shared/`). Zastosuj wzór i **zawsze ogłoś userowi** wykryty tryb jednym zdaniem zanim odpalisz codexa.
 
-1. **Brak argumentu** → `uncommitted` (staged + unstaged + untracked).
-2. **`test -f "$ARG"`** zwraca true → `file`.
-3. **`test -d "$ARG"`** zwraca true → `dir`.
-4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`
-   (działa dla SHA, `HEAD`, `HEAD~3`, nazw branchy, tagów).
-5. **W przeciwnym razie → `free`** (free-form hint). Argument jest
-   wolnym tekstem od usera (np. "całe repo", "audyt security w
-   `src/auth/`", "sprawdź czy nowe API jest backward compatible") —
-   przekazujemy go jako wskazówkę do codexa, on sam decyduje co i jak
-   zreviewować w kontekście tego repo.
-
-Sprawdzenia rób przez `Bash` jednym wywołaniem, np.:
-
-```bash
-ARG="..."  # to co user podał
-if [ -z "$ARG" ]; then echo "uncommitted"
-elif [ -f "$ARG" ]; then echo "file"
-elif [ -d "$ARG" ]; then echo "dir"
-elif git rev-parse --verify "$ARG^{commit}" >/dev/null 2>&1; then echo "commit"
-else echo "free"
-fi
-```
-
-Po detekcji **zawsze ogłoś userowi co wykryłeś** jednym zdaniem
-("Tryb: free-form, wskazówka: ‘…’"), żeby mógł przerwać jeśli to
-pomyłka (np. typo w ścieżce pliku spadł na `free`).
+Wspólny plik aktualizujesz raz — wszystkie 4 skille pluginu (codex/opencode/claude/external) używają tej samej detekcji.
 
 ## Strategia output: artifact file zamiast tee
 
@@ -183,110 +157,13 @@ PROMPT
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
 
-```
-WAŻNE — gdzie zwracasz review:
-
-Twój **jedyny deliverable** to plik markdown pod ścieżką:
-**${OUT}**
-
-Zapisz finalne review wprost do tego pliku, używając swojego
-`write` tool. Plik ma zawierać:
-- WYŁĄCZNIE ustrukturyzowany markdown wg formatu poniżej,
-- BEZ preambuły typu "OK, zaczynam review...",
-- BEZ podsumowania "Skończyłem review",
-- BEZ powtarzania review na stdout (stdout idzie tylko do
-  loga debugowego, nie do usera).
-
-Pierwsza linia pliku ma być nagłówkiem `## Podsumowanie`.
-
-Możesz swobodnie używać bash/read/grep do nawigacji po repo —
-to są twoje narzędzia robocze, ale ich output NIE idzie do
-deliverable. Tylko `write` na plik ${OUT}.
-
-Jeśli skończysz analizę bez znalezienia problemów score ≥ 80 —
-zapisz plik z sekcjami pustymi i jednym zdaniem
-"Nie znalazłem realnych problemów score ≥ 80." pod podsumowaniem.
-NIE pomijaj zapisu, NIE wymyślaj uwag żeby coś wpisać.
-```
+Czytaj **`../../shared/write-directive.md`** — wstaw zawartość bloku 1:1 jako `<DYREKTYWA ZAPISU>` w komendach codex powyżej. Zmienna `${OUT}` w prompcie będzie zinterpolowana przez shell przed wysłaniem do codexa (HEREDOC bez apostrofów wokół `PROMPT`).
 
 ## Prompt review (standardowy blok do wklejenia)
 
-Wklej **ten blok** w miejsce `<TUTAJ STANDARDOWY PROMPT>`:
+Czytaj **`../../shared/standard-review-prompt.md`** — wstaw zawartość bloku 1:1 jako `<TUTAJ STANDARDOWY PROMPT>` w komendach codex powyżej.
 
-```
-Pisz po polsku. Senior reviewer, konkret nie ogólnik.
-
-KONTEKST PROJEKTU:
-- **NAJPIERW** zorientuj się jaki to projekt: jakim językiem pisany,
-  jakim frameworkiem, gdzie testy. Wykryj sam (po plikach typu
-  `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`).
-- **POTEM przeczytaj `CLAUDE.md` w korzeniu repo** oraz każdy inny
-  `CLAUDE.md` znaleziony w katalogach zmienionych w tym diff/commit/
-  pliku/katalogu (to są twarde reguły konkretnego projektu - mogą
-  zawierać zakazy formatowania, wymagania exception handling, zakaz
-  modyfikowania migracji, wymagane prefiksy komend, itp.).
-- Złamanie reguły z CLAUDE.md → automatycznie score ≥ 75 i cytuj
-  którą regułę złamano.
-- Spójność z konwencjami sąsiedniego kodu liczy się tak samo jak
-  reguły explicit z CLAUDE.md.
-
-CO ZGŁOSIĆ (tylko realne problemy):
-- Bugi i błędy logiczne (off-by-one, błędne warunki, race conditions,
-  leak zasobów, zły lifecycle obiektów).
-- Luki bezpieczeństwa: SQL injection, XSS, CSRF, command injection,
-  path traversal, IDOR, niebezpieczne deserializacje, brakujące
-  permissions, sekrety w logach/responsach, GET-y mutujące stan.
-- Złamanie konkretnej reguły z CLAUDE.md (cytuj którą).
-- Połknięte wyjątki bez logu / re-raise (`except: pass`,
-  `catch (e) {}`, etc.) - prawie zawsze błąd.
-- Brakujące walidacje input-u na granicy systemu.
-- Framework-specific anti-patterny (np. dla Django: N+1, brak
-  `select_related`, niezweryfikowane permissions w widokach;
-  dla React: brak deps w `useEffect`; itd. - dobierz wg języka).
-- Brak testów dla **nowej** krytycznej ścieżki, jeśli reszta repo
-  testy pisze.
-
-CO BEZWZGLĘDNIE POMIJAĆ (false positives - score 0):
-- Pre-existing issues (problem był przed tą zmianą).
-- Problemy na liniach **nie zmodyfikowanych** w tym diff/commit
-  (NIE dotyczy trybu file/dir - tam review całości jest sensem).
-- Cokolwiek co łapie linter/typechecker/CI: formatowanie, długość
-  linii, importy, type errors, broken tests, ruff/isort.
-- Subiektywne preferencje stylu nie wymienione w CLAUDE.md.
-- "Dodaj docstring/type hints" jeśli reszta repo ich nie ma.
-- Issue explicit-em wyciszony w kodzie (`# noqa`, `# type: ignore`).
-- Zmiany funkcjonalności intencjonalne / część szerszej zmiany.
-- Generic "lack of test coverage / poor documentation" - tylko
-  jeśli CLAUDE.md tego wymaga.
-
-CONFIDENCE SCORING (0-100), ZGŁASZAJ TYLKO ≥ 80:
-- 0: FP, nie wytrzyma lekkiej krytyki, lub pre-existing.
-- 25: może realny, może FP - nie potwierdzony.
-- 50: potwierdzony, ale nitpick / rzadki w praktyce.
-- 75: ważny, na pewno wystąpi w praktyce, lub explicit w CLAUDE.md.
-- 100: pewny, częsty, dowody wprost w kodzie.
-
-Każda zgłoszona uwaga MUSI mieć:
-- **`<plik>:<linia>`** - bez tego nie zgłaszaj.
-- Cytat fragmentu (max 5 linii) jeśli pomaga.
-- Sugestia naprawy w 1-2 zdaniach.
-- Cytat reguły z CLAUDE.md jeśli to compliance issue.
-
-FORMAT PLIKU `${OUT}` (markdown, po polsku):
-
-## Podsumowanie
-2-3 zdania: ogólna ocena + verdykt
-(gotowe do merge / wymaga drobnych zmian / blokery).
-
-## Uwagi (tylko score ≥ 80)
-
-### 🔴 CRITICAL (blokery, score 100)
-### 🟠 HIGH (fix przed merge, score 90-99)
-### 🟡 MEDIUM (warto poprawić, score 80-89)
-
-W każdej sekcji lista, każda uwaga w formacie wyżej.
-Sekcja pusta → "brak".
-```
+Edytujesz wspólne pliki raz — trzy leaf skille (codex/opencode/claude) i wrapper używają tej samej wersji prompta i dyrektywy zapisu. Zmiana wytycznych review = zmiana w jednym miejscu.
 
 ## Po wykonaniu
 

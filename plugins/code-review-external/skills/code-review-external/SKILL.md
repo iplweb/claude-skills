@@ -30,22 +30,7 @@ indywidualnych skilli.
 
 ## Auto-detekcja celu
 
-Identyczna jak w `code-review-codex` / `code-review-opencode` /
-`code-review-claude`:
-
-1. **Brak argumentu** → `uncommitted`.
-2. **`test -f "$ARG"`** zwraca true → `file`.
-3. **`test -d "$ARG"`** zwraca true → `dir`.
-4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`.
-5. **W przeciwnym razie → `free`** (free-form hint). ARG to wolny
-   tekst od usera ("całe repo", "audyt security w src/auth/",
-   itp.) — przekazujemy go bez zmian do każdego z trzech narzędzi
-   jako wskazówkę, każde z nich samo decyduje co przejrzeć.
-
-Wykryj **raz**, użyj tego samego MODE i ARG dla trzech narzędzi.
-**Zawsze ogłoś userowi** jednym zdaniem co wykryłeś ("Tryb: free,
-wskazówka: ‘…’") — żeby przy typo w ścieżce mógł przerwać zanim
-odpalimy trzy CLI.
+Wspólna logika 5 trybów (`uncommitted` / `file` / `dir` / `commit` / `free`) — czytaj **`../../shared/target-detection.md`**. Wykryj **raz**, użyj tego samego MODE i ARG dla trzech narzędzi. **Zawsze ogłoś userowi** wykryty tryb zanim odpalisz trzy CLI — przy typo w ścieżce user musi mieć szansę przerwać.
 
 ## Architektura: background dispatch → wait → cross-check + amalgamacja
 

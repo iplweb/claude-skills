@@ -24,21 +24,7 @@ Sens jest taki, że `opencode` ma podać niezależną drugą opinię.
 
 ## Auto-detekcja celu (z argumentu usera)
 
-Identycznie jak w `code-review-codex`:
-
-1. **Brak argumentu** → `uncommitted` (staged + unstaged + untracked).
-2. **`test -f "$ARG"`** → `file`.
-3. **`test -d "$ARG"`** → `dir`.
-4. **`git rev-parse --verify "$ARG^{commit}"`** zwraca 0 → `commit`.
-5. **W przeciwnym razie → `free`** (free-form hint). Argument jest
-   wolnym tekstem od usera ("całe repo", "audyt security w
-   `src/auth/`", "sprawdź czy nowe API jest backward compatible") —
-   przekazujemy go jako wskazówkę, opencode sam czyta repo i
-   decyduje co zreviewować.
-
-Po detekcji **zawsze ogłoś userowi** jednym zdaniem co wykryłeś
-("Tryb: free-form, wskazówka: ‘…’"), żeby mógł przerwać jeśli to
-typo (np. literówka w ścieżce pliku spadła na `free`).
+Wspólna logika 5 trybów (`uncommitted` / `file` / `dir` / `commit` / `free`) — czytaj **`../../shared/target-detection.md`**. Zastosuj wzór i **zawsze ogłoś userowi** wykryty tryb zanim odpalisz opencode.
 
 ## Strategia output i permissions: dwa problemy, dwa rozwiązania
 
@@ -324,21 +310,11 @@ PROMPT
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
 
+Czytaj **`../../shared/write-directive.md`** — wstaw zawartość bloku 1:1 jako `<DYREKTYWA ZAPISU>` w komendach opencode powyżej.
+
+**Dodatkowo dla opencode** dopisz na końcu (specyficzne dla restrictive config tej sesji):
+
 ```
-WAŻNE — gdzie zwracasz review:
-
-Twój **jedyny deliverable** to plik markdown pod ścieżką:
-**${OUT}**
-
-Zapisz finalne review wprost do tego pliku, używając swojego
-`write` tool. Plik ma zawierać:
-- WYŁĄCZNIE ustrukturyzowany markdown wg formatu poniżej,
-- BEZ preambuły typu "OK, zaczynam review...",
-- BEZ podsumowania "Skończyłem review",
-- BEZ powtarzania review na stdout.
-
-Pierwsza linia pliku ma być nagłówkiem `## Podsumowanie`.
-
 UWAGA dotycząca permissions w tej sesji:
 - read: cały projekt OK, .env zablokowane.
 - glob/grep: cały projekt OK.
@@ -351,89 +327,15 @@ UWAGA dotycząca permissions w tej sesji:
 
 Te ograniczenia są intencjonalne: skill ma być read-only review,
 nie modyfikować repo. Jedyny output to plik review.
-
-Jeśli skończysz analizę bez znalezienia problemów score ≥ 80 —
-zapisz plik z sekcjami pustymi i jednym zdaniem
-"Nie znalazłem realnych problemów score ≥ 80." pod podsumowaniem.
-NIE pomijaj zapisu, NIE wymyślaj uwag żeby coś wpisać.
 ```
+
+Reszta dyrektywy (deliverable jako plik, brak preambuły, brak echo na stdout, jak postępować przy braku znalezisk) — w shared file.
 
 ## Prompt review (standardowy blok do wklejenia)
 
-```
-Pisz po polsku. Senior reviewer, konkret nie ogólnik.
+Czytaj **`../../shared/standard-review-prompt.md`** — wstaw zawartość bloku 1:1 jako `<TUTAJ STANDARDOWY PROMPT>` w komendach opencode powyżej.
 
-KONTEKST PROJEKTU:
-- **NAJPIERW** zorientuj się jaki to projekt: jakim językiem pisany,
-  jakim frameworkiem, gdzie testy. Wykryj sam (po plikach typu
-  `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`).
-- **POTEM przeczytaj `CLAUDE.md` w korzeniu repo** oraz każdy inny
-  `CLAUDE.md` znaleziony w katalogach zmienionych w tym diff/commit/
-  pliku/katalogu (twarde reguły konkretnego projektu - zakazy
-  formatowania, wymagania exception handling, zakaz modyfikowania
-  migracji, wymagane prefiksy komend, itp.).
-- Złamanie reguły z CLAUDE.md → automatycznie score ≥ 75 i cytuj
-  którą regułę złamano.
-- Spójność z konwencjami sąsiedniego kodu liczy się tak samo jak
-  reguły explicit.
-
-CO ZGŁOSIĆ (tylko realne problemy):
-- Bugi i błędy logiczne (off-by-one, błędne warunki, race conditions,
-  leak zasobów, zły lifecycle).
-- Luki bezpieczeństwa: SQL injection, XSS, CSRF, command injection,
-  path traversal, IDOR, niebezpieczne deserializacje, brakujące
-  permissions, sekrety w logach/responsach, GET-y mutujące stan.
-- Złamanie konkretnej reguły z CLAUDE.md (cytuj którą).
-- Połknięte wyjątki bez logu/re-raise (`except: pass`,
-  `catch (e) {}`, etc.) - prawie zawsze błąd.
-- Brakujące walidacje input-u na granicy systemu.
-- Framework-specific anti-patterny (np. Django: N+1, brak
-  `select_related`, niezweryfikowane permissions; React: brak
-  deps w `useEffect`, mutacja state - dobierz wg języka).
-- Brak testów dla **nowej** krytycznej ścieżki, jeśli reszta repo
-  testy pisze.
-
-CO BEZWZGLĘDNIE POMIJAĆ (false positives - score 0):
-- Pre-existing issues (problem był przed tą zmianą).
-- Problemy na liniach **nie zmodyfikowanych** w tym diff/commit
-  (NIE dotyczy trybu file/dir - tam review całości jest sensem).
-- Cokolwiek co łapie linter/typechecker/CI: formatowanie, długość
-  linii, importy, type errors, broken tests.
-- Subiektywne preferencje stylu nie wymienione w CLAUDE.md.
-- "Dodaj docstring/type hints" jeśli reszta repo ich nie ma.
-- Issue explicit-em wyciszony w kodzie (`# noqa`, `# type: ignore`,
-  `eslint-disable`).
-- Zmiany funkcjonalności intencjonalne / część szerszej zmiany.
-- Generic "lack of test coverage / poor documentation" - tylko
-  jeśli CLAUDE.md tego wymaga.
-
-CONFIDENCE SCORING (0-100), ZGŁASZAJ TYLKO ≥ 80:
-- 0: FP, nie wytrzyma lekkiej krytyki, lub pre-existing.
-- 25: może realny, może FP - nie potwierdzony.
-- 50: potwierdzony, ale nitpick / rzadki w praktyce.
-- 75: ważny, na pewno wystąpi w praktyce, lub explicit w CLAUDE.md.
-- 100: pewny, częsty, dowody wprost w kodzie.
-
-Każda zgłoszona uwaga MUSI mieć:
-- **`<plik>:<linia>`** - bez tego nie zgłaszaj.
-- Cytat fragmentu (max 5 linii) jeśli pomaga.
-- Sugestia naprawy w 1-2 zdaniach.
-- Cytat reguły z CLAUDE.md jeśli to compliance issue.
-
-FORMAT PLIKU `${OUT}` (markdown, po polsku):
-
-## Podsumowanie
-2-3 zdania: ogólna ocena + verdykt
-(gotowe do merge / wymaga drobnych zmian / blokery).
-
-## Uwagi (tylko score ≥ 80)
-
-### 🔴 CRITICAL (blokery, score 100)
-### 🟠 HIGH (fix przed merge, score 90-99)
-### 🟡 MEDIUM (warto poprawić, score 80-89)
-
-Sekcja pusta → "brak".
-```
+Edytujesz wspólne pliki raz — trzy leaf skille (codex/opencode/claude) i wrapper używają tej samej wersji prompta. Zmiana wytycznych review = zmiana w jednym miejscu.
 
 ## Po wykonaniu
 
