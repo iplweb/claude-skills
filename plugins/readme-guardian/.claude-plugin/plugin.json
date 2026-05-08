@@ -1,11 +1,16 @@
 {
   "name": "readme-guardian",
   "description": "Analyzes and improves Python project READMEs — badges, install instructions, version support matrix",
-  "version": "2026.05.0",
+  "version": "2026.05.2",
   "author": {
     "name": "Michal Pasternak"
   },
   "repository": "https://github.com/iplweb/claude-skills",
   "license": "MIT",
-  "keywords": ["readme", "documentation", "python", "badges"]
+  "keywords": [
+    "readme",
+    "documentation",
+    "python",
+    "badges"
+  ]
 }

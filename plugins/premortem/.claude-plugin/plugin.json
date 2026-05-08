@@ -1,11 +1,17 @@
 {
   "name": "premortem",
   "description": "Runs a Klein-style premortem on a plan, launch, hire, pricing change, or strategy — assumes it failed 6 months from now and works backward to expose blind spots and produce a revised plan",
-  "version": "2026.05.0",
+  "version": "2026.05.2",
   "author": {
     "name": "Michal Pasternak"
   },
   "repository": "https://github.com/iplweb/claude-skills",
   "license": "MIT",
-  "keywords": ["premortem", "decision-making", "planning", "risk", "stress-test"]
+  "keywords": [
+    "premortem",
+    "decision-making",
+    "planning",
+    "risk",
+    "stress-test"
+  ]
 }

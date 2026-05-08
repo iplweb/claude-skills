@@ -1,11 +1,17 @@
 {
   "name": "oss-github-publisher",
   "description": "Pre-flight audit before publishing a repo as open source — checks LICENSE, CI, pre-commit, scans for secrets and PII",
-  "version": "2026.05.0",
+  "version": "2026.05.2",
   "author": {
     "name": "Michal Pasternak"
   },
   "repository": "https://github.com/iplweb/claude-skills",
   "license": "MIT",
-  "keywords": ["oss", "audit", "security", "secrets", "publishing"]
+  "keywords": [
+    "oss",
+    "audit",
+    "security",
+    "secrets",
+    "publishing"
+  ]
 }
