@@ -2,6 +2,24 @@
 
 All releases follow [CalVer](https://calver.org/) — `YYYY.0M.MICRO`. The marketplace and all plugins ship in lockstep: every release re-tags every plugin with the same version.
 
+## 2026.05.4 — 2026-05-08
+
+Patch release: closes two MEDIUM findings from a `code-review-opencode` self-review of the repo. Fixes a real `.env` exfiltration risk in the opencode review wrapper and propagates the tmux observability/stuck-detection pattern from `code-review-external` into the `premortem-multiple` family.
+
+### Fixed
+- **`code-review-opencode` — `.env` no longer leaks into prompts in `uncommitted` mode.** The pre-computed `DIFF` (`git diff HEAD` + `cat` of every untracked file) ran in the **main agent** before the opencode restrictive config existed, so any local `.env` / `.env.local` was being read into the prompt body sent to the opencode API regardless of the in-session permission deny. Replaced with `git diff HEAD -- ':(exclude).env' ':(exclude).env.*'` plus a `grep -Ev '(^|/)\.env($|\.)'` filter on the untracked file list.
+
+### Changed
+- **`premortem-codex` — migrated to tmux pattern.** Codex now runs inside a detached `pm-codex-{TS}` tmux session (analogous to `cr-codex-{TS}` in `code-review-external`). Pane output captured via `tmux pipe-pane` to `/tmp/premortem-codex-{TS}.log`; codex still writes the final markdown report to `/tmp/premortem-codex-{TS}.md` via its `write` tool (artifact-file pattern preserved). Switched invocation from `codex exec ... > $RUN_LOG 2>&1` (raw pipe) to `codex exec --skip-git-repo-check --sandbox workspace-write ... </dev/null` inside the runner.
+- **`premortem-opencode` — migrated to tmux pattern.** Opencode now runs inside a detached `pm-opencode-{TS}` tmux session. Restrictive project-local `.opencode/opencode.json` setup + cleanup trap kept intact, with one fix: the trap now also calls `tmux kill-session` so a Ctrl-C in the parent agent cleans up both the session and the config. Added `--print-logs` so the bootstrap stage is visible (and stuck-detectable) instead of buffered into silence. Combined config-setup + tmux-launch + 90 s stuck-detector + hard 600 s deadline live in **one** bash command (trap fires after polling, never before).
+- **`premortem-multiple` wrapper — surfaces `tmux attach` commands.** After dispatching the three background tasks, the wrapper prints `tmux attach -t pm-codex-{TS}` and `tmux attach -t pm-opencode-{TS}` so users can watch either reviewer live. The Claude subagent stays on the `Agent` tool (no tmux) — it has its own task lifecycle and doesn't need pane observability.
+
+### Added
+- New shared file `plugins/premortem-multiple/shared/tmux-runner.md` — premortem-flavored variant of the `code-review-external` tmux runner pattern (different naming: `pm-{tool}-{TS}` sessions, `/tmp/premortem-{tool}-{TS}.{md,log}` files). Referenced by both leaf skills.
+
+### Requires
+- `tmux` ≥ 3.0 in `$PATH` for `premortem-codex` and `premortem-opencode` (preflight `which tmux`; abort with install hint if missing). Same requirement as `code-review-external`.
+
 ## 2026.05.3 — 2026-05-08
 
 Patch release: `code-review-external` family rewritten to dispatch every reviewer (codex / opencode / claude) inside its own attachable `tmux` session, with a stuck-detector that aborts after 90 s of no log growth instead of hanging for 15+ min on a wedged provider.

@@ -1,7 +1,7 @@
 {
   "name": "readme-guardian",
   "description": "Analyzes and improves Python project READMEs — badges, install instructions, version support matrix",
-  "version": "2026.05.3",
+  "version": "2026.05.4",
   "author": {
     "name": "Michal Pasternak"
   },

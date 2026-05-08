@@ -262,9 +262,19 @@ ostrzeż userowi, ale wykonaj.
 Przed dispatchem: `git rev-parse --is-inside-work-tree >/dev/null 2>&1`,
 brak repo → stop.
 
+**WAŻNE — nie zassij sekretów:** restrictive config opencode (sekcja
+"Polityka opencode" niżej) blokuje read `.env`, ale pre-compute jest
+wykonywany przez **głównego agenta zanim** ten config w ogóle istnieje.
+Bez filtrów `.env*` z untracked listy + `git diff` trafia 1:1 do prompta
+wysyłanego do API opencode. Wyklucz je explicit:
+
 ```
-DIFF=$(git diff HEAD; git ls-files --others --exclude-standard \
-  | xargs -I {} sh -c 'echo "=== UNTRACKED: {} ==="; cat {}')
+DIFF=$(
+  git diff HEAD -- ':(exclude).env' ':(exclude).env.*';
+  git ls-files --others --exclude-standard \
+    | grep -Ev '(^|/)\.env($|\.)' \
+    | xargs -I {} sh -c 'echo "=== UNTRACKED: {} ==="; cat -- "{}"'
+)
 ```
 
 Body promptu:

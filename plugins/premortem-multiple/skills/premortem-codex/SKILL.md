@@ -21,6 +21,9 @@ NIE używaj, gdy:
 - `codex` w `$PATH` (`which codex`). Brak → zatrzymaj się i powiedz
   userowi że trzeba zainstalować Codex CLI
   (https://github.com/openai/codex). Nie próbuj instalować sam.
+- `tmux` w `$PATH` (`which tmux`). Brak → stop, instalacja
+  (`brew install tmux` / `apt install tmux`). Cały skill jedzie przez
+  tmux — patrz `../../shared/tmux-runner.md`.
 
 ## Co dostaje skill
 
@@ -31,45 +34,41 @@ o najważniejszą lukę, nie kontynuuj z generycznym premortem.
 
 Premortem bez kontekstu = generyczny premortem = bezwartościowy.
 
-## Strategia output: artifact file zamiast tee
+## Strategia: tmux + artifact file
 
-Stary wzorzec (`2>&1 | tee "$OUT"`) wciągał do kontekstu Claude'a
-cały verbose dump codexa: echoed prompt, reasoning steps, exec
-calls — sam premortem pojawiał się dopiero na końcu i tonął
-w 50+ KB szumu.
+Codex uruchamia się **wewnątrz tmux session** (`pm-codex-$TS`). User
+może w dowolnym momencie podpiąć się: `tmux attach -t pm-codex-$TS`.
 
-Nowy wzorzec:
-1. **Codex sam pisze finalny premortem do pliku** przez swój
-   `write` tool (codex ma write/bash/read jako built-in).
-2. Wskazujemy mu konkretną ścieżkę `$OUT` w prompcie.
-3. Stdout/stderr lecą do **osobnego** `$RUN_LOG` (debug only).
-4. Po wykonaniu czytamy **tylko** `$OUT` przez `Read` — czyste
-   kilka KB markdown zamiast 50+ KB śmietnika.
+Codex sam pisze finalny premortem do **pliku** przez swój `write` tool
+(czysty markdown, ~2-5 KB). Pane output (verbose: reasoning steps, tool
+calls, banner-y) capture'owany jest do **osobnego** RUN_LOG przez
+`tmux pipe-pane`. Po zakończeniu czytamy tylko OUT przez `Read` — kontekst
+Claude'a dostaje czysty premortem zamiast 50+ KB szumu.
 
-## Komenda
+Pełny wzorzec (preflight, runner script, launch, polling, stuck detector)
+— czytaj **`../../shared/tmux-runner.md`**. Tu opisuję tylko
+**codex-specific wycinek**.
+
+> **WAŻNE — czemu `codex exec`, nie `codex review`:** premortem to
+> analiza planu, nie kod. `codex exec` (non-interactive) z naszym
+> promptem; codex sam wywołuje swój `write` tool na `$OUT`.
+
+## Codex-specific runner line
+
+Linia w runner script (KROK 3 wzorca z `tmux-runner.md`) dla codexa:
 
 ```bash
-TS=${PREMORTEM_TS:-$(date +%Y%m%d-%H%M%S)}
-OUT=/tmp/premortem-codex-$TS.md
-RUN_LOG=/tmp/premortem-codex-$TS.log
-
-codex exec "$(cat <<PROMPT
-<DYREKTYWA ZAPISU - patrz niżej>
-<TUTAJ STANDARDOWY PROMPT PREMORTEM - patrz dalej>
-PROMPT
-)" > "$RUN_LOG" 2>&1
+printf 'codex exec --skip-git-repo-check --sandbox workspace-write %q </dev/null\n' "$PROMPT_TEXT"
 ```
 
-- `codex exec` (non-interactive) zamiast `codex review` — tu nie chodzi
-  o kod, tylko o analizę planu.
-- `> "$RUN_LOG" 2>&1` — verbose codex idzie tylko do logu.
-- `PREMORTEM_TS` — jeśli wrapper wywołał z konkretnym timestampem,
-  używamy go, inaczej generujemy nowy. Pozwala wrapperowi sparować
-  trójkę plików tego samego runa.
-- Timeout `Bash` ustaw na **600000** ms (10 min) — premortem deep-dive
-  potrafi długo myśleć.
-- HEREDOC bez apostrofów wokół `PROMPT` — żeby `${OUT}` interpolowało
-  się przez shell ZANIM prompt trafi do codexa.
+`workspace-write` daje codexowi prawo zapisu do `${OUT}` w `/tmp/`;
+`read-only` zablokowałby zapis premortemu. `</dev/null` zamyka stdin
+żeby codex nie wisiał na `Reading additional input from stdin...`.
+
+`PREMORTEM_TS` — jeśli wrapper wywołał z konkretnym timestampem, leaf
+go używa (przez `TS=${PREMORTEM_TS:-$(date +%Y%m%d-%H%M%S)}` w preflight),
+inaczej generuje nowy. Pozwala wrapperowi sparować trójkę plików tego
+samego runa.
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
 
@@ -83,34 +82,43 @@ Edytujesz wspólne pliki raz — trzy leaf skille (codex/opencode/claude) i wrap
 
 ## Po wykonaniu
 
-1. Sprawdź `wc -c "$OUT"`. Pusty / nie istnieje → coś poszło nie
-   tak, zerknij na `tail -50 "$RUN_LOG"` i pokaż userowi.
-2. Jeśli sensowna zawartość — `Read "$OUT"`.
-3. Powiedz userowi krótko: "Codex premortem w `$OUT`, verbose log
-   w `$RUN_LOG`."
-4. Wywołane przez `premortem-multiple` → wrapper sam czyta `$OUT`,
+1. Sesja `pm-codex-$TS` zamyka się sama gdy codex zwróci. Polling
+   z `tmux-runner.md` wykrywa to (`tmux has-session` zwraca false).
+2. Sprawdź `wc -c "$OUT"`. Brak / pusty → tail RUN_LOG (`tail -30 "$RUN_LOG"`)
+   pokaże dlaczego (auth error, sandbox denial, etc.).
+3. Jeśli `$OUT` ma sensowną zawartość — `Read "$OUT"` i tyle (bez
+   parsowania RUN_LOG).
+4. Powiedz userowi krótko: "Codex premortem w `$OUT`. Sesja zakończona
+   (`tmux ls` żeby sprawdzić). Log: `$RUN_LOG`."
+5. Wywołane przez `premortem-multiple` → wrapper sam czyta `$OUT`,
    nie drukuj zawartości ponownie.
-5. Standalone → pokaż userowi zawartość pliku raz.
+6. Standalone → pokaż userowi zawartość pliku raz.
 
 ## Częste pomyłki
 
-- **Stary wzorzec `tee`** — wciąga 30-50 KB śmieci do kontekstu
-  Claude'a, premortem ginie. Stdout do `$RUN_LOG`, raport do `$OUT`.
-- **Pominięcie dyrektywy zapisu w prompcie** — codex wyrzuci
-  premortem na stdout, plik `$OUT` nie powstanie.
-- **HEREDOC z `'PROMPT'` (apostrofami)** — `${OUT}` leci jako
-  literał. Bez apostrofów żeby shell zinterpolował.
-- **Krótki timeout** — premortem z deep-dive'ami na 7 punktów potrafi
-  iść 5-8 minut. Default 120s = false negative.
-- **Generyczny prompt bez kontekstu planu** — premortem bez detali
-  produkuje pustosłowie. Jeśli wrapper nie podał kontekstu albo user
-  dał jednozdaniowy plan, zatrzymaj się i zapytaj o brakującą część
-  (CO / KTO / SUKCES).
-- **Mieszanie z code review** — to NIE jest review kodu. Codex tu nie
-  ma czytać `git diff`, ma analizować plan biznesowy/produktowy.
-  Używamy `codex exec`, nie `codex review`.
-- **Generowanie różnego timestampu niż wrapper** — jeśli wrapper
-  ustawił `PREMORTEM_TS` w env, użyj go. Inaczej trudno sparować
-  trójkę plików.
-- **Nie sprawdzanie czy plik powstał** — `wc -c "$OUT"` przed Read,
-  zawsze.
+- **Pominięcie tmux** — uruchamianie `codex exec` bezpośrednio (`> $RUN_LOG 2>&1`)
+  zamiast w sesji tmux. Tracimy live-attach UX i stuck-detection. ZAWSZE przez tmux,
+  patrz `../../shared/tmux-runner.md`.
+- **Pominięcie `--sandbox workspace-write`** — `read-only` zablokuje codexowi zapis OUT.
+  `workspace-write` daje prawo zapisu do `/tmp/`. Nie używaj `danger-full-access`.
+- **Pominięcie `</dev/null` w runnerze** — codex w tmux ma TTY (lepiej), ale dla pewności
+  zamykaj stdin redirectem.
+- **Pominięcie dyrektywy zapisu w prompcie** — codex wyrzuci premortem na stdout, plik
+  `$OUT` nie powstanie. Dyrektywa zapisu jest **obowiązkowa**.
+- **HEREDOC z `'PROMPT'` (apostrofami)** — `${OUT}` leci jako literał. Bez apostrofów
+  żeby shell zinterpolował.
+- **Krótki timeout** — premortem z deep-dive'ami na 7 punktów potrafi iść 5-8 minut.
+  Default 120s = false negative. **600000 ms** (10 min) na całość bash polling-a.
+- **Generyczny prompt bez kontekstu planu** — premortem bez detali produkuje pustosłowie.
+  Jeśli wrapper nie podał kontekstu albo user dał jednozdaniowy plan, zatrzymaj się
+  i zapytaj o brakującą część (CO / KTO / SUKCES).
+- **Mieszanie z code review** — to NIE jest review kodu. Codex tu nie ma czytać `git diff`,
+  ma analizować plan biznesowy/produktowy. Używamy `codex exec`, nie `codex review`.
+- **Generowanie różnego timestampu niż wrapper** — jeśli wrapper ustawił `PREMORTEM_TS`
+  w env, użyj go. Inaczej trudno sparować trójkę plików.
+- **Stuck threshold za krótki** — codex grzeje model 30-60s na cold start. **90s** to
+  dobre minimum. Krócej → false-aborty.
+- **Czytanie OUT przed zakończeniem sesji** — premortem może być niekompletny. ZAWSZE
+  czekaj aż `tmux has-session` zwróci false (patrz polling z `tmux-runner.md`).
+- **Pominięcie ogłoszenia `tmux attach -t pm-codex-$TS` userowi** — sens refactora to
+  observability. Drukuj attach command **przed** rozpoczęciem polling-u.

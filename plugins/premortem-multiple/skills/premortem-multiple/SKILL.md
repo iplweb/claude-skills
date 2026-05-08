@@ -30,11 +30,14 @@ NIE używaj, gdy:
 
 - **`codex`** w `$PATH`.
 - **`opencode`** w `$PATH`.
+- **`tmux`** w `$PATH` (codex i opencode jadą w sesjach tmux —
+  patrz `../../shared/tmux-runner.md`).
 - Subagent Claude — zawsze dostępny przez `Agent` tool.
 
-Brak któregoś z dwóch CLI → **zatrzymaj się** i powiedz userowi co
-zainstalować. Nie kontynuuj z dwoma — sens skilla = trzy niezależne
-opinie. Jeśli user chce tylko 2 z 3, niech użyje pojedynczych skilli.
+Brak któregoś z **trzech** narzędzi (codex/opencode/tmux) → **zatrzymaj
+się** i powiedz userowi co zainstalować. Nie kontynuuj z dwoma — sens
+skilla = trzy niezależne opinie. Jeśli user chce tylko 2 z 3, niech
+użyje pojedynczych skilli.
 
 ## Architektura (background dispatch → wait → meta-synteza)
 
@@ -137,28 +140,31 @@ wskazanego pliku przez swój write tool, my czytamy potem czysty
 plik):
 
 1. **`Bash`** (codex), `run_in_background: true`:
-   - Komenda zgodnie z `premortem-codex` — **artifact file pattern**:
-     codex pisze raport do `$CODEX_OUT` przez write tool, stdout
-     do `/tmp/premortem-codex-$TS.log`.
+   - Komenda zgodnie z `premortem-codex` — **tmux + artifact file
+     pattern**: codex jedzie w sesji `pm-codex-$TS`, pisze raport do
+     `$CODEX_OUT` przez write tool, pane output capture'owany do
+     `/tmp/premortem-codex-$TS.log` przez `tmux pipe-pane`.
    - Eksportuj `PREMORTEM_TS=$TS` żeby skill użył tego samego stampa:
-     `PREMORTEM_TS=$TS codex exec "..."`.
+     `PREMORTEM_TS=$TS bash -c '... '`.
    - W prompt wstaw kontekst planu z kroku 1 (CO/KTO/SUKCES) +
      prompt premortem + **dyrektywę zapisu** wskazującą `$CODEX_OUT`.
-   - `> "$RUN_LOG" 2>&1` (NIE `tee`), timeout `600000` ms.
-   - description: `premortem codex`.
+   - Bash command zawiera setup runnera + tmux launch + polling
+     z stuck-detection (90s). Timeout `600000` ms.
+   - description: `premortem codex (tmux: pm-codex-$TS)`.
    - **Zapamiętaj zwrócony `task_id`.**
 
 2. **`Bash`** (opencode), `run_in_background: true`:
-   - Komenda zgodnie z `premortem-opencode` — **artifact file +
+   - Komenda zgodnie z `premortem-opencode` — **tmux + artifact file +
      tymczasowy project-local `.opencode/opencode.json` + trap
-     cleanup**.
+     cleanup**. Sesja `pm-opencode-$TS`.
    - Restrykcyjny config: `read/glob/grep/bash` deny, edit allow
      tylko dla `/tmp/premortem-*`. Premortem nie czyta projektu,
      więc deny nie boli.
    - Ten sam kontekst planu + prompt premortem + dyrektywa zapisu
      wskazująca `$OPENCODE_OUT`.
-   - `--dir "$PROJECT_ROOT"`, `> "$RUN_LOG" 2>&1`, timeout `600000` ms.
-   - description: `premortem opencode`.
+   - `--dir "$PROJECT_ROOT"`, `--print-logs`, tmux pipe-pane do
+     `$RUN_LOG`. Timeout `600000` ms.
+   - description: `premortem opencode (tmux: pm-opencode-$TS)`.
    - **Zapamiętaj `task_id`.**
 
 3. **`Agent`** (claude) — domyślnie zwraca async task:
@@ -174,6 +180,19 @@ plik):
 Po dispatchu masz 3 task IDs i wracasz do głównej kontroli —
 nic nie blokuje.
 
+**Pokaż userowi attach info dla obu sesji tmux** (codex i opencode).
+Format jednolinijkowy:
+
+```
+▶ premortem leci równolegle:
+    codex:    tmux attach -t pm-codex-$TS
+    opencode: tmux attach -t pm-opencode-$TS
+    claude:   (subagent — bez tmux, status przez TaskOutput)
+```
+
+Sens: jeśli user chce zobaczyć co się dzieje, ma command pod ręką.
+Detach: `Ctrl-B D`.
+
 ### Krok 3.5 — Czekaj na wszystkie trzy przez `TaskOutput`
 
 Sekwencyjnie wywołaj `TaskOutput` dla każdego z trzech task ID
@@ -182,12 +201,19 @@ wywołanie blokuje aż dany task się skończy albo timeout wybije.
 Ponieważ wszystkie trzy uruchomiły się równolegle, łączny czas
 oczekiwania = max(t1, t2, t3), nie suma.
 
+Bash dla codex/opencode kończy się gdy wewnętrzny polling wykryje
+zamknięcie sesji tmux (CLI zwróciło, stuck detector zabił, albo hard
+timeout 10 min). Stuck detection po stronie leafa (90s bez wzrostu
+RUN_LOG i brak OUT → kill) jest ortogonalne do timeoutu `TaskOutput`
+— zwykle leaf zabije się sam zanim timeout `TaskOutput` zadziała.
+
 `TaskOutput` zwróci status `completed` lub `failed`. Sam result
 text-u nie potrzebujemy — premortem jest w plikach `$CODEX_OUT`,
 `$OPENCODE_OUT`, `$CLAUDE_OUT`.
 
-Jeśli `TaskOutput` zwróci status `running` po 600s — task wisi,
-patrz "Co jeśli któreś padło / wisi" niżej.
+Jeśli `TaskOutput` zwróci status `running` po 600s — task wisi
+(rzadkie: leaf z tmux-em ma własny stuck detector), patrz
+"Co jeśli któreś padło / wisi" niżej.
 
 ### Krok 3.6 — Walidacja plików
 
@@ -548,6 +574,17 @@ Pełny raport user otworzy sobie sam — chat pokazuje tylko esencję. Jeśli ud
 
 ## Częste pomyłki
 
+- **Stary wzorzec bez tmux.** Bash leafy (codex/opencode) jadą
+  **w tmux** (`pm-codex-$TS`, `pm-opencode-$TS`) — patrz
+  `../../shared/tmux-runner.md`. Dispatch przez `Bash run_in_background:
+  true`, ale wewnątrz tej komendy: tmux launch + polling + stuck
+  detection (90s). Bez tmuxa tracimy attach UX i stuck detection;
+  opencode w pipe-mode wisi 15+ min na bootstrap niewidzialnie.
+  Subagent claude **nie** wymaga tmuxa — to Agent tool z natywnym
+  task lifecycle.
+- **Pominięcie attach info dla usera.** Po dispatchu pokaż userowi
+  `tmux attach -t pm-codex-$TS` i `pm-opencode-$TS`. Sens refactora
+  to observability — bez ogłoszenia komendy attach to tracimy.
 - **Stary wzorzec `tee` zamiast artifact file.** Już nie używamy.
   Leaf skille (codex/opencode/claude) same piszą finalny premortem
   do swojego `$X_OUT` przez write tool. Wrapper czyta tylko czyste

@@ -1,7 +1,7 @@
 {
   "name": "python-upgrade-package",
   "description": "Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration",
-  "version": "2026.05.3",
+  "version": "2026.05.4",
   "author": {
     "name": "Michal Pasternak"
   },
