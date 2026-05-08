@@ -298,17 +298,17 @@ dopisać do kalendarza (jak/kiedy weryfikować checklist), kiedy
 wrócić do tego dokumentu (zwykle: punkt sprawdzający za 2 tygodnie
 albo przy konkretnym sygnale ostrzegawczym).
 
-## Krok 5 — Zapis raportu + transkryptu
+## Krok 5 — Zapis raportu + transkryptu + HTML
 
-Dwa pliki w **cwd** (nie `/tmp/` — to jest deliverable usera):
+Trzy pliki w **cwd** (nie `/tmp/` — to są deliverables usera):
 
 ```
-premortem-multiple-report-<TS>.md       # synteza (primary, do czytania)
+premortem-multiple-report-<TS>.html     # visual raport (primary — do otwarcia w przeglądarce)
+premortem-multiple-report-<TS>.md       # markdown synteza (do czytania w terminalu / cytowania)
 premortem-multiple-transcript-<TS>.md   # 3 surowe outputy + meta info
 ```
 
-Użyj **tego samego `$TS`** co w `/tmp/premortem-{codex,opencode,claude}-$TS.md`,
-żeby user mógł później zlokalizować wszystkie 5 plików tego samego runa.
+Użyj **tego samego `$TS`** co w `/tmp/premortem-{codex,opencode,claude}-$TS.md`, żeby user mógł zlokalizować wszystkie 6 plików tego samego runa (3 surowe w `/tmp/` + 3 deliverables w cwd).
 
 ### Raport (`premortem-multiple-report-<TS>.md`)
 
@@ -394,18 +394,139 @@ Konkatenacja trzech surowych outputów + nagłówki:
 [zawartość $CLAUDE_OUT — czysta]
 ```
 
+### HTML raport (`premortem-multiple-report-<TS>.html`)
+
+Pojedynczy self-contained HTML — wszystko inline (CSS w `<style>`, brak external CDN). User otwiera w przeglądarce i ma pełen obraz na jednym ekranie.
+
+**Zasady designu** (analogiczne do pojedynczego skilla `premortem`):
+
+- **Tło ciemne** (`#0a0e1a` lub podobne), typografia czytelna (system-ui / -apple-system / sans-serif), 16-18px base.
+- **Synteza na górze** (nad fold) — najważniejsze sekcje od razu widoczne: najbardziej prawdopodobna porażka, najbardziej groźna porażka, ujednolicona rewizja, checklist. To dostają użytkownicy którzy nie scrollują dalej.
+- **Konsensus + rozbieżności jako visualnie odróżnione bloki** — np. konsensus z grubą lewą borderą (mocne czerwone/pomarańczowe), rozbieżności z subtelniejszą borderą (jasniejsza). Tagi agentów `[codex] [opencode] [claude]` jako pill-badges.
+- **Sprzeczności między agentami eksponowane**, nie ukrywane — osobna sekcja albo wyróżniony styl. To jest sygnał, nie noise.
+- **Trzy karty per agent** poniżej syntezy (codex / opencode / claude), każda z własnym akcentem (np. niebieski / zielony / fioletowy), zwijane (`<details>`) lub w stałym layoucie kart side-by-side.
+- **Visual cue dla severity / likelihood** każdej zidentyfikowanej porażki — kolor lewej bordery, ikona, lub badge (`HIGH RISK`, `MOST LIKELY`, etc.).
+- **Footer**: timestamp, plan w 1 zdaniu, lista 3 reviewerów, link do markdown raportu (`href="premortem-multiple-report-<TS>.md"`) i transkryptu.
+
+**Wymagane elementy strukturalne:**
+
+```html
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Premortem multiple — [nazwa planu]</title>
+<style>
+  /* dark theme, system fonts, max-width ~960px, comfortable line-height */
+  /* grid/flex layout for agent cards; subtle borders for sections */
+</style>
+</head>
+<body>
+  <header>
+    <h1>Premortem multiple: [plan w 1 zdaniu]</h1>
+    <p class="meta">Reviewerzy: codex, opencode, claude · <YYYY-MM-DD HH:MM></p>
+    <p class="plan-summary"><b>Plan:</b> [pełny CO/KTO/SUKCES]</p>
+  </header>
+
+  <section id="synteza">
+    <h2>Synteza (najważniejsze)</h2>
+    <div class="callout most-likely"><h3>Najbardziej prawdopodobna porażka</h3>...</div>
+    <div class="callout most-dangerous"><h3>Najbardziej groźna porażka</h3>...</div>
+    <div class="callout assumption"><h3>Najgłębsze ukryte założenie</h3>...</div>
+    <div class="callout revision">
+      <h3>Ujednolicona rewizja planu</h3>
+      <ol class="revisions"><li>...</li></ol>
+    </div>
+    <div class="callout checklist">
+      <h3>Checklist przed startem</h3>
+      <ul class="checklist-items"><li>☐ ...</li></ul>
+    </div>
+  </section>
+
+  <section id="konsensus">
+    <h2>Konsensus przyczyn śmierci (2+ agentów)</h2>
+    <ul class="consensus-list">
+      <li class="finding consensus">
+        <span class="badges"><span class="badge codex">codex</span> <span class="badge claude">claude</span></span>
+        <h3>...</h3>
+        <p>...</p>
+      </li>
+    </ul>
+  </section>
+
+  <section id="rozbieznosci">
+    <h2>Rozbieżności (1 agent)</h2>
+    <ul class="divergence-list">
+      <li class="finding divergence">
+        <span class="badges"><span class="badge opencode">opencode</span></span>
+        <h3>...</h3>
+        <p>...</p>
+        <p class="judgment"><b>Ocena:</b> realny insight / idiosynkrazja / tool bias.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section id="sprzecznosci">
+    <h2>Sprzeczności między agentami</h2>
+    <!-- pomiń całą sekcję jeśli sprzeczności brak -->
+  </section>
+
+  <section id="agenci">
+    <h2>Surowe outputy</h2>
+    <div class="agent-grid">
+      <details class="agent-card codex"><summary>codex</summary><div>[zawartość]</div></details>
+      <details class="agent-card opencode"><summary>opencode</summary><div>[zawartość]</div></details>
+      <details class="agent-card claude"><summary>claude</summary><div>[zawartość]</div></details>
+    </div>
+  </section>
+
+  <footer>
+    <p>Pliki: <a href="premortem-multiple-report-<TS>.md">markdown synteza</a> · <a href="premortem-multiple-transcript-<TS>.md">transkrypt</a></p>
+    <p>Wygenerowano: [timestamp] · plugin <code>premortem-multiple</code></p>
+  </footer>
+</body>
+</html>
+```
+
+**Konkretne reguły kolorów / akcentów** (zachowaj spójność między runami):
+
+| Element | Kolor / styl |
+|---|---|
+| Tło | `#0a0e1a` |
+| Tekst | `#e8eaed` |
+| Nagłówki (H1-H3) | `#ffffff`, font-weight 600 |
+| Konsensus border / akcent | `#ef4444` (czerwony — high signal) |
+| Rozbieżność border / akcent | `#fbbf24` (żółty — uwaga, weryfikuj) |
+| Sprzeczność border / akcent | `#f97316` (pomarańczowy — wyróżnij) |
+| Most-likely callout | gradient lub solid `#dc2626` |
+| Most-dangerous callout | `#7c3aed` (fiolet — distinct od most-likely) |
+| Revision callout | `#10b981` (zielony — actionable) |
+| Checklist callout | `#3b82f6` (niebieski — process) |
+| Codex agent | akcent `#06b6d4` (cyan) |
+| Opencode agent | akcent `#10b981` (zielony) |
+| Claude agent | akcent `#a855f7` (fiolet) |
+
+**Po wygenerowaniu HTML** — możesz spróbować otworzyć go w przeglądarce automatycznie:
+```bash
+open "premortem-multiple-report-<TS>.html"   # macOS
+xdg-open "premortem-multiple-report-<TS>.html"  # Linux
+start "premortem-multiple-report-<TS>.html"  # Windows
+```
+
+Jeśli `open` nie zadziała (headless / no GUI) — pokaż userowi tylko ścieżkę. Nie zatrzymuj na tym całego flow.
+
+**Cap rozmiaru HTML:** ~150 KB. Jeśli surowe outputy są duże (5+ KB każdy × 3 = 15 KB w sekcji "Surowe outputy"), `<details>` zwija je domyślnie — synteza widoczna, raw dostępny po kliknięciu. Nie inline'uj zewnętrznych obrazów / fontów (offline-friendly).
+
 ## Krok 6 — Pokaż userowi
 
 W chacie pokaż **streszczenie 4-zdaniowe** (nie pełny raport):
 
 1. Najbardziej prawdopodobna porażka (1 zdanie).
 2. Najbardziej groźna porażka (1 zdanie).
-3. Ujednolicone, najważniejsze działanie do zrobienia w tym tygodniu
-   (1 zdanie).
-4. Gdzie reszta: `premortem-multiple-report-<TS>.md` w cwd
-   (transkrypt + 3 surowe outputy w `/tmp/` jeśli user chce drążyć).
+3. Ujednolicone, najważniejsze działanie do zrobienia w tym tygodniu (1 zdanie).
+4. Gdzie reszta: **`premortem-multiple-report-<TS>.html`** (visual, do otwarcia w przeglądarce — primary deliverable) plus markdown raport i transkrypt obok niego w cwd; trzy surowe outputy w `/tmp/` jeśli user chce drążyć.
 
-Pełny raport user otworzy sobie sam — chat pokaże tylko esencję.
+Pełny raport user otworzy sobie sam — chat pokazuje tylko esencję. Jeśli udało się odpalić `open` na HTML, zaznacz to ("HTML otworzyłem w przeglądarce").
 
 ## Co jeśli któreś narzędzie padło / wisi
 
