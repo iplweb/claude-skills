@@ -92,11 +92,25 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
    [project]
    name = "<package-name>"
    version = "<version>"
-   description = "<description>"
+   description = "<short, one-line description>"
    readme = "README.md"  # or README.rst if that's what exists
    requires-python = ">=3.10"
    license = "<from LICENSE file or setup.py>"
    authors = [{name = "<author>", email = "<email>"}]
+   keywords = ["<keyword1>", "<keyword2>"]
+   classifiers = [
+       "Development Status :: 5 - Production/Stable",       # pick the matching maturity level
+       "License :: OSI Approved :: MIT License",            # match the LICENSE file exactly
+       "Programming Language :: Python :: 3",
+       "Programming Language :: Python :: 3.10",            # one per minor in requires-python
+       "Programming Language :: Python :: 3.11",
+       "Programming Language :: Python :: 3.12",
+       "Programming Language :: Python :: 3.13",
+       # For Django projects, also add:
+       # "Framework :: Django",
+       # "Framework :: Django :: 4.2",
+       # "Framework :: Django :: 5.2",
+   ]
    dependencies = [
        # from install_requires / requirements.txt
    ]
@@ -105,6 +119,13 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
    dev = [
        # from extras_require['dev'] or dev-requirements.txt
    ]
+
+   [project.urls]
+   Homepage = "https://github.com/<owner>/<repo>"
+   Repository = "https://github.com/<owner>/<repo>"
+   Issues = "https://github.com/<owner>/<repo>/issues"
+   Changelog = "https://github.com/<owner>/<repo>/blob/main/CHANGELOG.md"
+   Documentation = "https://github.com/<owner>/<repo>#readme"
    ```
 
    **Important considerations:**
@@ -112,6 +133,29 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
    - Preserve all entry_points / console_scripts as `[project.scripts]`
    - Preserve all extras_require as `[project.optional-dependencies]`
    - If `setup.cfg` had `[options.packages.find]`, translate to `[tool.setuptools.packages.find]`
+
+   **`[project.urls]` extraction** (don't fabricate URLs):
+   - From `setup.py`: `url=...` → `Homepage`; `project_urls={...}` → spread into the urls block
+   - From `setup.cfg` `[metadata]`: `url`, `project_urls`
+   - From git remote: `git remote get-url origin` → derive owner/repo
+   - From existing README badges: any `https://github.com/...` link gives owner/repo
+   - If no source confirms a URL, leave that key out — empty `Homepage` is worse than no Homepage
+   - `Documentation`: only set if real docs exist (Read the Docs, mkdocs site). Otherwise omit
+   - `Changelog`: only set if `CHANGELOG.md` actually exists in the repo
+
+   **`keywords` extraction:**
+   - From `setup.py`: `keywords=` (string or list)
+   - From `setup.cfg` `[metadata]`: `keywords`
+   - If absent, derive 3-5 from the description and main `Topic ::` classifiers — but ask the user
+
+   **`classifiers` hygiene** (don't blindly copy from setup.py):
+   - **Drop** `Programming Language :: Python :: 2`, `Python :: 2.7`, and any minor below `requires-python` floor (`>=3.10` → drop 3.5–3.9 entries)
+   - **Add** one `Programming Language :: Python :: X.Y` per minor in the derived Python matrix (Step 4 — same list)
+   - **`Development Status`** — change from `1 - Planning` (default placeholder) to the matching level: `3 - Alpha`, `4 - Beta`, `5 - Production/Stable`, `6 - Mature`, `7 - Inactive`. Ask the user if unsure
+   - **`License`** classifier MUST match the actual `LICENSE` file (e.g., MIT file → `License :: OSI Approved :: MIT License`)
+   - **For Django projects:** add `Framework :: Django` and one `Framework :: Django :: X.Y` per Django version in the matrix (Step 4)
+   - **Drop irrelevant** classifiers — e.g., `Topic :: System :: Installation/Setup` for non-installer tools, `Operating System :: OS Independent` if the package is platform-specific
+   - Validate the final list against <https://pypi.org/classifiers/> — typos silently break PyPI uploads
 
 3. **Initialize uv:**
    ```bash
@@ -133,19 +177,43 @@ Skip if `pyproject.toml` already exists with `[project]` section AND no setup.py
 5. **Delete obsolete files:**
    - `setup.py`
    - `setup.cfg` (only if ALL sections have been migrated — check for `[tool:pytest]`, `[flake8]`, etc. that still need migration in later steps)
-   - `requirements.txt` (and variants like `requirements-dev.txt`)
+   - **All `requirements*.txt` variants** — discover with:
+     ```bash
+     find . -maxdepth 3 \( -name 'requirements*.txt' -o -name '*-requirements.txt' -o -path '*/requirements/*.txt' \) -not -path './.venv/*' -not -path './node_modules/*'
+     ```
+     Common names: `requirements.txt`, `requirements-dev.txt`, `requirements-test.txt`, `requirements-docs.txt`, `dev-requirements.txt`, `test-requirements.txt`, `requirements/base.txt`, `requirements/dev.txt`, `requirements/prod.txt`. Migrate all of them into `[project.dependencies]` and `[project.optional-dependencies]` first, THEN delete.
+     - **Prod deps** (`requirements.txt`, `requirements/base.txt`, `requirements/prod.txt`) → `[project.dependencies]`
+     - **Dev/test/docs deps** → corresponding `[project.optional-dependencies]` extras (`dev`, `test`, `docs`)
+     - If a `requirements/` directory ends up empty, delete the directory itself
    - `MANIFEST.in`
    - `Pipfile`, `Pipfile.lock`
 
    **CAUTION with setup.cfg:** If it contains `[tool:pytest]`, `[flake8]`, `[isort]`, or other tool configs, do NOT delete it yet — those sections migrate in later steps. Only delete setup.cfg when it's fully empty of useful config.
 
-6. **Commit:**
+6. **Verify the migration produced valid metadata (build smoke-test)** — before committing:
+
+   ```bash
+   uv build
+   uv run --with twine twine check dist/*
+   ```
+
+   - **`uv build`** must succeed and produce both `dist/*-<version>.tar.gz` (sdist) and `dist/*-<version>-*.whl` (wheel). If it fails, the new `pyproject.toml` is broken — investigate (typo in TOML, missing required field, packaging-data path mismatch) before proceeding.
+   - **`twine check dist/*`** validates that the artifacts will pass PyPI's upload checks: long_description rendering (RST/Markdown), classifier validity (rejects typos against the official list), metadata completeness. **Every line must say `PASSED`** — `WARNING` is also acceptable for non-blocking issues, but `FAILED` blocks publishing.
+   - **Common failures and fixes:**
+     - `long_description has syntax errors` — README has invalid RST/Markdown. Either fix or set `[project.readme] content-type = "text/markdown"` explicitly.
+     - `classifiers value is not a valid choice` — typo. Validate at <https://pypi.org/classifiers/>.
+     - `name not normalized` — package name uses underscores or capitals. Lowercase + hyphens.
+     - `Cannot find file '...'` — `[tool.setuptools.package-data]` or `include` patterns reference paths that don't exist after the `MANIFEST.in` migration.
+   - **Clean up after:** `rm -rf dist/ build/ *.egg-info` (or rely on `.gitignore`). The build artefacts MUST NOT be committed.
+
+7. **Commit:**
    ```
    Convert packaging from setup.py/setup.cfg to uv + pyproject.toml
 
    - Generated pyproject.toml with all metadata from setup.py/setup.cfg
    - Initialized uv (uv.lock created)
-   - Removed obsolete packaging files: setup.py, setup.cfg, requirements.txt, MANIFEST.in
+   - Removed obsolete packaging files: setup.py, setup.cfg, requirements*.txt, MANIFEST.in, Pipfile
+   - Verified with `uv build` + `twine check` — all artifacts PASSED
    ```
 
 ---
@@ -772,14 +840,47 @@ Skip if `.pre-commit-config.yaml` already exists with ruff hooks configured.
    - `.bumpversion.cfg`, `versioneer.py` (should be gone after Step 2)
    - `tox.ini` (if fully migrated)
    - `.flake8`, `.isort.cfg` (if migrated to ruff)
-   - `Makefile` entries referencing old tools — flag but don't auto-edit
 
-4. **Commit:**
+4. **Modernize `Makefile` (if present)** — show diff, ask user to confirm before applying. Concrete safe substitutions:
+
+   | Old (Py2-era / pre-uv) | New (uv-era) |
+   |---|---|
+   | `python setup.py install` | `uv sync` |
+   | `python setup.py develop` | `uv sync` (uv installs current package in editable mode by default) |
+   | `pip install -e .` | `uv sync` |
+   | `pip install -r requirements.txt` | `uv sync` |
+   | `pip install -r requirements-dev.txt` | `uv sync --all-extras` |
+   | `pip install .[dev]` | `uv sync --extra dev` |
+   | `python setup.py test` | `uv run pytest` |
+   | `python -m pytest` | `uv run pytest` |
+   | `python -m unittest discover` | `uv run pytest` |
+   | `nosetests` | `uv run pytest` |
+   | `coverage run -m pytest && coverage report` | `uv run pytest --cov` (after configuring `pytest-cov`) |
+   | `flake8 .` | `uv run ruff check .` |
+   | `pylint <pkg>` | `uv run ruff check <pkg>` |
+   | `black .` | `uv run ruff format .` |
+   | `isort .` | `uv run ruff check --select I --fix .` (or via pre-commit) |
+   | `python setup.py sdist bdist_wheel` | `uv build` |
+   | `python setup.py sdist` | `uv build --sdist` |
+   | `python -m build` | `uv build` |
+   | `twine check dist/*` | `uv run --with twine twine check dist/*` |
+   | `twine upload dist/*` | keep, OR migrate to trusted publishing via GH Actions (preferred for OSS — no PyPI token in repo) |
+   | `rm -rf build dist *.egg-info` | keep (still needed) |
+
+   **Do NOT auto-substitute** these — flag for the user to review:
+   - `python setup.py compile_locale` / `compilemessages` / any custom `setup.py` command — these were defined in `setup.py` and disappear when `setup.py` is removed; the user must replace them with direct invocations (e.g., `django-admin compilemessages`)
+   - `tox` invocations — depends on whether tox.ini was kept (Step 5)
+   - Anything that calls a deleted `setup.py` target by name (`setup.py register`, `setup.py upload`, `setup.py check`)
+
+   If the Makefile is mostly obsolete (just `install`, `test`, `clean`), consider proposing deletion: `make` is rarely needed when `uv` provides equivalent commands. Ask the user.
+
+5. **Commit:**
    ```
-   Clean up: update .gitignore and README badges
+   Clean up: update .gitignore, README badges, Makefile
 
    - Added modern Python .gitignore patterns
    - Updated README badges for Python versions and CI
+   - Modernized Makefile targets to use uv (where safe; flagged custom targets for user)
    ```
 
 ---
@@ -843,6 +944,12 @@ Commits created: <count>
 | Hardcoding `django-upgrade --target-version` | Derive from the lowest Django in the project's Django constraint — pinning higher than the floor breaks runtime |
 | Enabling ruff `UP` rule alongside the pyupgrade hook | Pick one — they overlap. The skill defaults to a separate pyupgrade hook because UP rule is forbidden in Step 2's ruff config |
 | Running `pyupgrade` / `django-upgrade` outside pre-commit on the whole repo | Same as `pre-commit run --all-files` — defeats the minimal-diff principle |
+| Skipping `uv build` + `twine check` after the packaging migration | Step 1's smoke-test catches broken `pyproject.toml` (typos, invalid classifiers, broken README rendering) before they hit PyPI. ALWAYS run before commit |
+| Copying classifiers wholesale from `setup.py`, including stale entries | `Programming Language :: Python :: 2.7` etc. must be dropped. Validate the final list against <https://pypi.org/classifiers/> — typos silently fail PyPI uploads |
+| Leaving placeholder `[project.urls]` like `https://github.com/<owner>/<repo>` | Either fill in real URLs or omit the key. Empty placeholder is worse than no Homepage |
+| Fabricating `[project.urls]` Documentation/Changelog when no docs/CHANGELOG exists | Only set keys for resources that actually exist in the project |
+| Auto-editing custom `Makefile` targets that called `setup.py <command>` | These targets disappear with `setup.py`. Flag for user — replacement depends on what the custom command did |
+| Migrating only `requirements.txt` and missing `dev-requirements.txt` / `requirements/dev.txt` | Use the discovery `find` command in Step 1.5 to enumerate ALL variants. Migrate each into the right `[project.optional-dependencies]` extra before deleting |
 
 ## Red Flags — STOP
 
