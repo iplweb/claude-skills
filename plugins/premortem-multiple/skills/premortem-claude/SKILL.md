@@ -24,152 +24,53 @@ NIE używaj, gdy:
 Trzy elementy minimalne planu (CO / KTO / SUKCES). Brak któregoś →
 zadaj **jedno** pytanie. Wrapper podaje kontekst gotowy.
 
-## Mechanizm: subagent przez `Agent` tool
+## Mechanizm: subagent przez `Agent` tool (artifact-file pattern)
 
-Wywołujesz **`Agent` tool** z `subagent_type: "general-purpose"`,
-`description: "Premortem (claude)"`, i pełnym promptem premortem
-poniżej.
-
-Po zwróceniu wyniku przez agenta:
-1. **Zapisz** wynik do `/tmp/premortem-claude-<TS>.md` przez `Write`
-   tool (subagent zwraca tekst, nie zapisuje sam).
-2. Pokaż userowi (chyba że wywołany przez wrapper).
-
-`<TS>` — jeśli wrapper przekazał konkretny timestamp w prompcie
-agenta (np. "TIMESTAMP: 20260507-123455"), użyj go w nazwie pliku.
-Standalone → wygeneruj `date +%Y%m%d-%H%M%S` przed dispatchem.
+Wywołujesz `Agent` tool z `subagent_type: "general-purpose"`, `description: "Premortem (claude)"`. Subagent dostaje pełny prompt premortem + dyrektywę zapisu — pisze finalny raport **wprost do pliku** przez Write tool (subagent ma Write w domyślnej allowliście). Konsystentnie z codex/opencode w nowym wzorcu.
 
 ```dot
 digraph flow {
   "Kontekst planu (CO/KTO/SUKCES)" [shape=box];
-  "Agent dispatch" [shape=box];
-  "Subagent: analiza premortem" [shape=box];
-  "Subagent zwraca raport" [shape=box];
-  "Write do /tmp/" [shape=box];
+  "TS=$(date ...)" [shape=box];
+  "OUT=/tmp/premortem-claude-$TS.md" [shape=box];
+  "Agent dispatch (prompt zawiera dyrektywe zapisu do $OUT)" [shape=box];
+  "Subagent: analiza + Write do $OUT" [shape=box];
+  "Read $OUT" [shape=box];
   "Pokaz userowi" [shape=box];
 
-  "Kontekst planu (CO/KTO/SUKCES)" -> "Agent dispatch";
-  "Agent dispatch" -> "Subagent: analiza premortem";
-  "Subagent: analiza premortem" -> "Subagent zwraca raport";
-  "Subagent zwraca raport" -> "Write do /tmp/";
-  "Subagent zwraca raport" -> "Pokaz userowi";
+  "Kontekst planu (CO/KTO/SUKCES)" -> "TS=$(date ...)";
+  "TS=$(date ...)" -> "OUT=/tmp/premortem-claude-$TS.md";
+  "OUT=/tmp/premortem-claude-$TS.md" -> "Agent dispatch (prompt zawiera dyrektywe zapisu do $OUT)";
+  "Agent dispatch (prompt zawiera dyrektywe zapisu do $OUT)" -> "Subagent: analiza + Write do $OUT";
+  "Subagent: analiza + Write do $OUT" -> "Read $OUT";
+  "Read $OUT" -> "Pokaz userowi";
 }
 ```
 
-## Prompt subagenta (kompletny — skopiuj 1:1)
+Przed dispatchem ustal nazwy plików (jeśli nie zostały podane przez wrapper):
 
-Dispatchuj `Agent` z `subagent_type: "general-purpose"`,
-`description: "Premortem (claude)"`, i `prompt`:
-
+```bash
+TS=${PREMORTEM_TS:-$(date +%Y%m%d-%H%M%S)}
+OUT=/tmp/premortem-claude-$TS.md
 ```
-Robisz premortem metodą Gary'ego Kleina (HBR, polecane przez
-Kahnemana). Pisz po polsku. Konkret nie ogólnik. Senior strategist,
-nie polite advisor.
 
-PLAN DO PRZEANALIZOWANIA:
----
-[TU WRAPPER WSTAWIA KONTEKST PLANU: co to jest jednym zdaniem,
- dla kogo / na kogo wpływa, co znaczy sukces. Standalone — to co
- user napisał w wiadomości po nazwie skilla.]
----
+`OUT` jest interpolowany do prompta subagenta jako konkretna ścieżka — subagent NIE wykrywa go sam, main agent musi go podstawić w prompt string przed Agent dispatch.
 
-[Opcjonalnie: TIMESTAMP: <YYYYMMDD-HHMMSS> — żeby wrapper znał
-nazwę pliku gdzie zapisać twój output.]
+## Prompt subagenta (kompletny)
 
-PRZESŁANKA PREMORTEMU (NIE POMIJAJ — to mechanizm psychologiczny):
-Jest 6 miesięcy w przyszłości. Ten plan **już padł**. Skończony.
-Nie pytasz "czy to dobry plan" (to wywołuje przytakiwanie). Pytasz
-"jak ten plan umarł" — to wymusza specyficzne, uczciwe powody.
+Dispatchuj `Agent` z `subagent_type: "general-purpose"`, `description: "Premortem (claude)"`, i `prompt` zbudowanym z **dwóch części**:
 
-ZANIM RUSZYSZ — opcjonalnie zorientuj się w workspace:
-- Jest `CLAUDE.md` w cwd? Przeczytaj — może zawierać kontekst
-  biznesowy / poprzednie decyzje istotne dla tego planu.
-- Jest folder `memory/` z notatkami? Sprawdź ich zawartość krótko.
-- Cap 30 sekund, nie szukaj wyczerpująco. Tylko grounding.
+**Część A: standardowy blok premortem (wspólny)** — czytaj **`../../shared/standard-premortem-prompt.md`** i wstaw zawartość bloku 1:1. To zawiera kontekst planu, przesłankę, 3 kroki, format wyjścia.
 
-KROK 1 — Lista przyczyn śmierci:
-Wygeneruj WSZYSTKIE realne powody, dla których plan padł. Każdy:
-- specyficzny dla TEGO planu (nie generyczny "ryzyko rynku"),
-- ugruntowany w detalach (konkretna cena, konkretna grupa,
-  konkretna decyzja),
-- realnym zagrożeniem (nie edge case ani niewygoda).
+**Część B: dyrektywa zapisu** — czytaj **`../../shared/write-directive.md`** i wstaw zawartość 1:1 (subagent ma `Write` tool z domyślnej allowlisty `general-purpose`, więc zapisze do `${OUT}` zamiast zwracać tekst). **`${OUT}` MUSI być przed-podstawione** przez main agent w prompt string — subagent dostaje literał, nie zmienną.
 
-Liczba: tyle ile naprawdę istnieje. 4 albo 9. Nie wymyślaj 7-go żeby
-zapełnić, nie zatrzymuj się na 3 jeśli jest ich 7.
-
-KROK 2 — Deep-dive per przyczyna:
-Dla KAŻDEJ przyczyny z kroku 1:
-1. **Historia upadku** (2-3 akapity) — narracja jak się rozegrało,
-   konkretne momenty, konkretne reakcje. Case study, nie risk
-   assessment.
-2. **Ukryte założenie** (1 zdanie) — to JEDNO co user wziął za
-   pewnik, co umożliwiło tę porażkę.
-3. **Wczesne sygnały** (1-2 obserwowalne sygnały) — coś co da się
-   zobaczyć/zmierzyć, nie przeczucia.
-
-KROK 3 — Synteza:
-1. **Najbardziej prawdopodobna porażka** + dlaczego (tu user
-   skupia wysiłek).
-2. **Najbardziej groźna porażka** (worst damage, nawet jeśli mniej
-   likely — warto asekurować).
-3. **Najgłębsze ukryte założenie** z całej analizy.
-4. **Rewizja planu** — KONKRETNE zmiany mapowane do konkretnych
-   porażek. NIE "przemyśl strategię". TAK "uruchom pilot 20 osób
-   za 47$ przed pełnym launchem za 297$". Każda rewizja wykonalna
-   w tym tygodniu.
-5. **Checklist przed startem** — 3-5 konkretów do zweryfikowania
-   przed pociągnięciem spustu, każdy zapobiega konkretnej porażce.
-
-CO BEZWZGLĘDNIE POMIJAĆ:
-- Generyki ("ryzyko rynku", "ryzyko egzekucji").
-- Edge case'y bez praktycznego znaczenia.
-- "Warto rozważyć X" — produkujesz konkrety, nie watered-down porady.
-- Balansowanie ("plan ma swoje plusy") — jesteś po stronie znalezienia
-  śmierci, nie ważenia opinii.
-- Cukrowanie. User chce słyszeć rzeczy zanim usłyszy ich od
-  rzeczywistości.
-
-FORMAT ODPOWIEDZI (markdown, po polsku):
-
-## Premortem [nazwa planu w 1 zdaniu]
-
-### Przyczyny śmierci (krok 1)
-
-Numerowana lista, każdy punkt 1-2 zdania.
-
-### Deep-dive
-
-#### 1. [tytuł przyczyny]
-**Historia upadku:** ...
-**Ukryte założenie:** ...
-**Wczesne sygnały:** ...
-
-(powtórz dla każdej)
-
-### Synteza
-
-**Najbardziej prawdopodobna porażka:** ...
-**Najbardziej groźna porażka:** ...
-**Najgłębsze ukryte założenie:** ...
-
-**Rewizja planu:**
-- ... (każda rewizja → konkretna porażka)
-
-**Checklist przed startem:**
-- [ ] ... (każda pozycja → konkretna porażka)
-
-NIE pisz preambuły ("zaraz zrobię premortem..."). NIE podsumowuj na
-koniec ("zakończyłem analizę"). Main agent dostaje twój output 1:1.
-```
+Łączny prompt subagenta = Część A + Część B.
 
 ## Po wykonaniu
 
-1. Po zwróceniu treści przez `Agent`, **`Write`** ten tekst dosłownie
-   do `/tmp/premortem-claude-$TS.md`. (Nazwa z tym samym `$TS` co
-   w wrapperze, jeśli wrapper podał).
-2. Standalone → pokaż userowi cały zwrócony markdown.
-3. Wywołany przez `premortem-multiple` → nie drukuj zawartości,
-   wrapper sam to złoży.
+1. Sprawdź czy `$OUT` istnieje i ma sensowny rozmiar (`wc -c "$OUT"` ≥ 200 B). Pusty / brak → subagent zignorował dyrektywę zapisu albo padł — pokaż userowi `Agent` task output żeby zobaczyć dlaczego.
+2. Wczytaj `$OUT` przez `Read`.
+3. Standalone — pokaż userowi zawartość pliku raz. Wywołany przez `premortem-multiple` — nie drukuj, wrapper sam to złoży.
 4. Powiedz userowi 1 zdaniem: "Claude premortem zapisany w `$OUT`."
 
 ## Częste pomyłki
@@ -183,11 +84,8 @@ koniec ("zakończyłem analizę"). Main agent dostaje twój output 1:1.
 - **Inny `subagent_type` niż `general-purpose`.** Niektóre
   wyspecjalizowane agenty wyglądają kuszące, ale są pluginowo-zależne.
   `general-purpose` z dobrym promptem jest portable.
-- **Pominięcie `Write` po dispatchu.** Subagent zwraca tekst, nie
-  zapisuje pliku. Bez `Write` plik `$OUT` nie powstanie i wrapper
-  będzie niespójny.
-- **Modyfikacja outputu w drodze do pliku.** Zapisz **dosłownie** to
-  co zwrócił subagent, bez parafraz, bez wstępów.
+- **Pominięcie dyrektywy zapisu w prompcie subagenta.** Subagent w nowym wzorcu **sam pisze** raport do `$OUT` przez Write tool. Bez dyrektywy (Część B, z `shared/write-directive.md`) zwróci tekst zamiast zapisać plik — wrapper czeka na plik, dostanie pusty.
+- **`$OUT` nie zinterpolowane w prompcie subagenta.** Subagent dostaje literalny string prompta — main agent musi podstawić aktualną wartość `$OUT` (np. `/tmp/premortem-claude-20260508-100530.md`) zanim wywoła `Agent`. Sprawdź wzrokowo że ścieżka w prompcie to konkretny plik, nie literał `${OUT}`.
 - **Pominięcie przesłanki "to już padło"** w prompcie subagenta. Bez
   tego analiza ślizga się do politycznego "risk assessment" —
   premortem przestaje działać jako mechanizm.

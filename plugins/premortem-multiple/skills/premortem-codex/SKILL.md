@@ -73,122 +73,13 @@ PROMPT
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
 
-```
-WAŻNE — gdzie zwracasz premortem:
-
-Twój **jedyny deliverable** to plik markdown pod ścieżką:
-**${OUT}**
-
-Zapisz finalny raport premortem wprost do tego pliku, używając
-swojego `write` tool. Plik ma zawierać:
-- WYŁĄCZNIE ustrukturyzowany markdown wg formatu poniżej,
-- BEZ preambuły typu "OK, zaczynam premortem...",
-- BEZ podsumowania "Skończyłem".
-- BEZ powtarzania raportu na stdout.
-
-Pierwsza linia pliku ma być nagłówkiem `## Premortem ...`.
-
-Stdout idzie tylko do loga debugowego, nie do usera. Nie tracz
-energii na ładne formatowanie stdout.
-```
+Czytaj **`../../shared/write-directive.md`** — wstaw zawartość bloku 1:1 jako `<DYREKTYWA ZAPISU>` w komendzie codex powyżej. Zmienna `${OUT}` w prompcie zinterpolowana przez shell przed wysłaniem do codexa (HEREDOC bez apostrofów wokół `PROMPT`).
 
 ## Standardowy prompt premortem (do wklejenia)
 
-Wklej **ten blok** w miejsce `<TUTAJ STANDARDOWY PROMPT PREMORTEM>`:
+Czytaj **`../../shared/standard-premortem-prompt.md`** — wstaw zawartość bloku 1:1 jako `<TUTAJ STANDARDOWY PROMPT PREMORTEM>` w komendzie codex powyżej.
 
-```
-Pisz po polsku. Robisz premortem metodą Gary'ego Kleina, nie ogólne
-risk assessment.
-
-PLAN DO PRZEANALIZOWANIA:
----
-[TU WRAPPER WSTAWIA KONTEKST PLANU: co to jest jednym zdaniem,
- dla kogo / na kogo wpływa, co znaczy sukces. Jeśli wywołane
- standalone — wstaw to co user napisał w wiadomości.]
----
-
-PRZESŁANKA PREMORTEMU:
-Jest 6 miesięcy w przyszłości. Ten plan **już padł**. Skończony,
-nieudany. Nie pytasz "czy to dobry plan" (to wywołuje grzeczne
-przytakiwania). Pytasz "jak ten plan umarł" — i to wymusza
-specyficzne, uczciwe powody.
-
-KROK 1 — Lista przyczyn śmierci:
-Wygeneruj WSZYSTKIE realne powody, dla których ten plan padł. Każdy
-powód musi być:
-- specyficzny dla TEGO planu (nie generyczny "ryzyko rynku"),
-- ugruntowany w detalach, które dostałeś (nazwij konkretną cenę,
-  konkretną grupę, konkretną decyzję),
-- realnym zagrożeniem (nie edge case ani niewygoda).
-Liczba: tyle ile faktycznie istnieje. Mogą być 4, mogą być 9. Nie
-wymyślaj 7-go żeby zapełnić listę. Nie zatrzymuj się na 3 jeśli jest
-ich więcej.
-
-KROK 2 — Deep-dive na każdą przyczynę:
-Dla KAŻDEJ przyczyny z kroku 1 napisz:
-1. **Historia upadku** (2-3 akapity) — narracja jak to się rozegrało.
-   Konkretne momenty, konkretne reakcje. Niech brzmi jak case study
-   czegoś, co naprawdę się stało.
-2. **Ukryte założenie** (1 zdanie) — to JEDNO, co user wziął za
-   pewnik, a co umożliwiło tę porażkę.
-3. **Wczesne sygnały ostrzegawcze** (1-2 obserwowalne sygnały) —
-   coś co da się zobaczyć lub zmierzyć, nie ogólne przeczucia.
-
-KROK 3 — Synteza:
-Po deep-dive'ach napisz:
-1. **Najbardziej prawdopodobna porażka** — który scenariusz jest
-   najbardziej prawdopodobny i dlaczego. Tu user powinien skupić
-   wysiłek najpierw.
-2. **Najbardziej groźna porażka** — który scenariusz robi największe
-   szkody, nawet jeśli mniej prawdopodobny. Warto się asekurować.
-3. **Najbardziej ukryte założenie** — z całej analizy: jedna rzecz,
-   którą user bierze za pewnik najmocniej. Tu często leży prawdziwa
-   wartość premortemu.
-4. **Rewizja planu** — KONKRETNE zmiany przypisane do konkretnych
-   scenariuszy porażki. NIE "przemyśl strategię". TAK "przetestuj
-   cenę 47$ z 20 osobami przed publicznym committem do 297$".
-   Każda rewizja ma być wykonalna w tym tygodniu.
-5. **Checklist przed startem** — 3-5 konkretnych rzeczy do
-   zweryfikowania / zrobić zanim user pociągnie spust. Każda pozycja
-   zapobiega konkretnej porażce z listy.
-
-CO POMIJAĆ (false positives):
-- "Ryzyko rynkowe", "ryzyko egzekucyjne" — generyki bez wartości.
-- Edge case'y które się nie wydarzą w praktyce.
-- Doradcze "warto rozważyć X" — premortem produkuje konkrety, nie
-  watery porady.
-- Pochwały planu i "z tym może być problem ale nie jest aż taki zły"
-  — jesteś po stronie znalezienia śmierci, nie balansu opinii.
-
-FORMAT PLIKU `${OUT}` (markdown, po polsku):
-
-## Premortem [nazwa planu w 1 zdaniu]
-
-### Przyczyny śmierci (krok 1)
-
-Lista numerowana, każdy punkt 1-2 zdania.
-
-### Deep-dive
-
-#### 1. [tytuł przyczyny]
-**Historia upadku:** ...
-**Ukryte założenie:** ...
-**Wczesne sygnały:** ...
-
-(powtórz dla każdej przyczyny)
-
-### Synteza
-
-**Najbardziej prawdopodobna porażka:** ...
-**Najbardziej groźna porażka:** ...
-**Najbardziej ukryte założenie:** ...
-
-**Rewizja planu:**
-- ... (mapowanie na konkretne porażki)
-
-**Checklist przed startem:**
-- [ ] ... (każda pozycja zapobiega konkretnej porażce)
-```
+Edytujesz wspólne pliki raz — trzy leaf skille (codex/opencode/claude) i wrapper używają tej samej wersji prompta. Zmiana metodologii premortemu = zmiana w jednym miejscu.
 
 ## Po wykonaniu
 

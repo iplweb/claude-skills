@@ -150,20 +150,11 @@ PROMPT
 
 ## Dyrektywa zapisu (do wklejenia jako `<DYREKTYWA ZAPISU>`)
 
+Czytaj **`../../shared/write-directive.md`** — wstaw zawartość bloku 1:1.
+
+**Dodatkowo dla opencode** dopisz na końcu (specyficzne dla restrictive config tej sesji):
+
 ```
-WAŻNE — gdzie zwracasz premortem:
-
-Twój **jedyny deliverable** to plik markdown pod ścieżką:
-**${OUT}**
-
-Zapisz finalny raport premortem wprost do tego pliku, używając
-swojego `write` tool. Plik ma zawierać:
-- WYŁĄCZNIE ustrukturyzowany markdown wg formatu poniżej,
-- BEZ preambuły, BEZ podsumowania.
-- BEZ powtarzania raportu na stdout.
-
-Pierwsza linia pliku ma być nagłówkiem `## Premortem ...`.
-
 UWAGA dotycząca permissions w tej sesji:
 - read/glob/grep: deny — analizujesz plan tylko z tego co masz
   w prompcie. Nie próbuj otwierać żadnych plików w projekcie.
@@ -174,23 +165,17 @@ UWAGA dotycząca permissions w tej sesji:
 Te ograniczenia są intencjonalne: premortem to czysta analiza
 plan w prompcie, niczego nie modyfikujesz w projekcie usera,
 żadnych zewnętrznych źródeł. Tylko jeden plik wyjścia.
+
+(Sekcja "ZANIM RUSZYSZ — opcjonalnie zorientuj się w workspace"
+z prompta premortem NIE dotyczy ciebie — sandbox tej sesji ma
+read=deny. Pomiń krok i jedź dalej z tym co masz w prompcie.)
 ```
 
 ## Standardowy prompt premortem (do wklejenia)
 
-Identyczny jak w `premortem-codex` — patrz tam, sekcja "Standardowy
-prompt premortem (do wklejenia)". Skopiuj 1:1.
+Czytaj **`../../shared/standard-premortem-prompt.md`** — wstaw zawartość bloku 1:1 jako `<TUTAJ STANDARDOWY PROMPT PREMORTEM>` w komendzie opencode powyżej.
 
-Krótkie przypomnienie struktury:
-1. Przesłanka: plan **już padł** 6 miesięcy w przyszłości.
-2. Krok 1: lista wszystkich realnych przyczyn śmierci (specyficznych,
-   ugruntowanych, niewymyślonych do liczby).
-3. Krok 2: per-przyczyna deep-dive (historia + ukryte założenie +
-   wczesne sygnały).
-4. Krok 3: synteza (najbardziej prawdopodobna / najbardziej groźna /
-   najgłębsze ukryte założenie / rewizja planu / checklist).
-5. Format markdown po polsku, bez preambuły, bez podsumowań na koniec.
-6. Wynik zapisany do pliku `$OUT`, nie na stdout.
+Edytujesz wspólne pliki raz — trzy leaf skille (codex/opencode/claude) i wrapper używają tej samej wersji prompta.
 
 ## Po wykonaniu
 
