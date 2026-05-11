@@ -1,7 +1,7 @@
 {
   "name": "premortem-multiple",
   "description": "Runs three independent premortems (codex, opencode, Claude subagent) in parallel on the same plan, then synthesizes them into a single unified document — consensus failures, divergent blind spots, hidden assumptions, and a combined revised plan. Includes individual skills for each reviewer.",
-  "version": "2026.05.5",
+  "version": "2026.05.6",
   "author": {
     "name": "Michal Pasternak"
   },

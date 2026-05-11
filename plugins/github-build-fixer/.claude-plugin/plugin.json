@@ -1,7 +1,7 @@
 {
   "name": "github-build-fixer",
   "description": "Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green",
-  "version": "2026.05.5",
+  "version": "2026.05.6",
   "author": {
     "name": "Michal Pasternak"
   },

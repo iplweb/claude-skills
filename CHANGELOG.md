@@ -2,6 +2,40 @@
 
 All releases follow [CalVer](https://calver.org/) — `YYYY.0M.MICRO`. The marketplace and all plugins ship in lockstep: every release re-tags every plugin with the same version.
 
+## 2026.05.6 — 2026-05-11
+
+New plugin release: `django-extract-app` adds a guided workflow for extracting a Django app embedded in a monolithic project into a standalone reusable package. Designed to chain into the existing `readme-guardian` + `oss-github-publisher` pipeline so the extracted package ships with the same level of polish as a greenfield OSS project.
+
+### Added — `django-extract-app` plugin (two skills)
+
+- **`django-extract-app`** — the main extraction skill. 10-step procedure, one commit per step in the new package's repo:
+  1. **Reconnaissance** — locates the app inside the monolith, confirms it's a real Django app (`apps.py` / `INSTALLED_APPS` membership / settings module detection), inventories source files (models / views / admin / signals / commands / templatetags / templates / static / migrations / existing tests).
+  2. **Extractability audit** — eight independent checks, each producing OK / WARN / BLOCK: cross-app FKs + dynamic `apps.get_model` refs, cross-app imports, `settings.X` usages (becomes the package's settings contract), migration `dependencies=[...]` cross-app deps, `reverse()` + `{% url %}` cross-app coupling, template `{% extends %}` / `{% include %}` cross-app, `@receiver(..., sender=other_app.X)` signals, `admin.site.register` of cross-app models. ≥1 BLOCK pauses and asks the user to abort or knowingly continue.
+  3. **Decisions** (via `AskUserQuestion`, one at a time) — OSS vs internal package, PyPI distribution name (suggests `django-<foo>`), importable name, target package path, git history strategy (clean `init` or `git filter-repo --subdirectory-filter` with preflight check), DB engine in tests (auto-detects Postgres-specific features like `ArrayField`, `JSONField` PG ops, `django.contrib.postgres`, `pg_trgm` and recommends `pytest-testcontainers-django`; defaults to SQLite otherwise), example/demo project (default Yes for apps with views/urls/admin/templates), license choice.
+  4. **Repo bootstrap** — `mkdir` + `git init` (or `git filter-repo` on a clone of the monolith), copies app source into `src/<importable>/`, first commit `"Initial extraction from <monolith> @ <sha>"`.
+  5. **`pyproject.toml` + uv** — detects third-party imports vs stdlib/Django/same-package, generates a complete `[project]` block (Django × Python matrix from `readme-guardian`'s canonical table — 5.2 LTS + 6.0 as of 2026-05-08), `[tool.setuptools.packages.find]` for `src/` layout, `[tool.pytest.ini_options]` with `DJANGO_SETTINGS_MODULE = "tests.settings"`, runs `uv sync --all-extras`.
+  6. **Test scaffolding with TDD stubs** — generates `tests/settings.py` (SQLite or Postgres-via-testcontainers fixture), `conftest.py`, optional `tests/urls.py`, and per-construct test stubs (`test_models.py`, `test_views.py`, `test_admin.py`, `test_signals.py`, `test_commands.py`, `test_templatetags.py`, `test_apps.py`) — every stub `pytest.skip("TODO: ...")` so failure-to-fill-in is visible. Existing tests from the monolith are migrated with import paths rewritten (`from <monolith>.<app>.X` → `from <importable>.X`); cross-app imports get flagged as TODO comments rather than auto-resolved.
+  7. **GitHub Actions** — `.github/workflows/tests.yml` with `include:`-style Django × Python matrix (5.2 LTS / 6.0 × Python 3.10–3.14, intersected with `readme-guardian`'s canonical compatibility table), separate lint job (ruff check + format, non-blocking), optional `example-check` job for the demo project (`manage.py check` + `migrate --run-syncdb`). Postgres mode adds a `docker info` smoke step (testcontainers manages its own container).
+  8. **Tooling** — `.pre-commit-config.yaml` (ruff lint E/F/W + ruff-format + `pyupgrade --py310-plus` derived from `requires-python` + `django-upgrade --target-version 5.2` derived from Django floor), `LICENSE` (MIT default), `.gitignore` (Python + Django + uv), `README.md` starter (install / `INSTALLED_APPS` / URLs / requirements / settings contract / dev setup), `CHANGELOG.md` in Keep-a-Changelog format.
+  9. **Optional example/demo project** — `example/` with `manage.py` + minimal `settings.py` (SQLite + admin) + `urls.py` wiring the package's URLs. Doubles as a CI smoke test for the package.
+  10. **Local verification + chaining** — runs `uv sync && uv run pytest && uv run pre-commit run --all-files && uv build && uv run --with twine twine check dist/*`, surfaces any failure to the user (no silent auto-fix). Then asks (default Yes) whether to chain into `/readme-guardian:readme-guardian` and `/oss-github-publisher:oss-github-publisher`, both invoked via the `Skill` tool in the new package's directory. Final report enumerates commits, audit findings, verification results, and next-steps (push to GitHub, publish to PyPI, run the cleanup sub-skill).
+
+- **`django-extract-app-cleanup`** — phase-2 sub-skill, invoked separately after the package is published or installed editable. Wires the new package back into the monolith and removes the original app directory, in two commits with three verifications:
+  1. **Wiring** — adds the package as a dependency via one of four strategies (`AskUserQuestion`): PyPI released (`uv sync`-immediately), PyPI placeholder (added with TODO, no install until publish), editable local install (`uv add --editable <path>`), or git URL with explicit `@ref`. Verifies the package imports and `manage.py check` passes BEFORE removing the original app — so removal can't strand the monolith if wiring is broken.
+  2. **Removal** — before deletion, runs a **migration safety check**: compares the AppConfig label between monolith and installed package, and diffs the migration filename sets in `<monolith>/<app>/migrations/` vs the installed package's `<importable>/migrations/`. If either mismatches, stops without deleting. Otherwise `git rm -r <app>/`, then re-verifies all three: `manage.py check`, `makemigrations --check --dry-run` (the critical drift detector — if this finds anything, the source-of-truth has diverged and the user must resolve manually, not paper over with a fresh migration the package won't have), and the monolith's full test suite.
+
+### Added — repository
+
+- New plugin entry in `marketplace.json` and `README.md` (plugin table, Python project lifecycle skill graph with extraction sub-graph, install + usage sections, cross-references).
+- Cross-reference: `django-extract-app` reads the canonical Django × Python compatibility matrix from `readme-guardian`'s SKILL.md — same single source of truth as `python-upgrade-package`, no duplicated copies of the table.
+
+### Iron laws encoded in the extraction skill
+
+1. **Never modify the monolith in the main skill.** Read-only access only. Wiring + removal happens in the separate cleanup sub-skill, with a clean working-tree precondition.
+2. **One commit per step in the new repo.** Every step is independently revertible.
+3. **Every decision goes through `AskUserQuestion`.** No silent defaults for naming, location, history strategy, DB engine, license, or example project.
+4. **Audit BLOCKers stop the workflow.** A blocking issue triggers an explicit abort/continue prompt — never silently shipping a known-broken package.
+
 ## 2026.05.5 — 2026-05-08
 
 Security hardening release. Three iterative `codex` self-reviews of the repo surfaced 9 distinct sandbox/secret-handling issues in `code-review-opencode` (and adjacent skills). Every finding was reproduced empirically before fixing — `git diff --no-index /etc/hosts /dev/null`, `git log --output=PATH`, malicious-filename command injection via `xargs -I {}`, and nested-`.env` pathspec leakage all confirmed live. Round 3 returned with no new findings against the previously-fixed surfaces, so this release closes the audit. Also folds in stale Django version data from a parallel review.

@@ -12,6 +12,7 @@ Grouped by purpose:
 |--------|-------------|
 | [python-upgrade-package](plugins/python-upgrade-package/) | Modernizes legacy Python packages step-by-step — `setup.py` → `uv` + `pyproject.toml`, Travis → GitHub Actions, pytest migration |
 | [python2-cleanup](plugins/python2-cleanup/) | Removes Python 2 compatibility cruft from a Py3 codebase — `six`, `__future__`, `unicode()`, `iteritems`, `python_2_unicode_compatible`, etc. — one commit per category |
+| [django-extract-app](plugins/django-extract-app/) | Audits a Django app inside a monolithic project for extractability (cross-app FKs, imports, settings, migration deps, URL/signal coupling) and extracts it into a standalone reusable Django package with tests, CI, pre-commit, and optional example project. Includes a separate cleanup sub-skill for wiring the package back into the original project |
 | [readme-guardian](plugins/readme-guardian/) | Analyzes and improves Python project READMEs — badges, install instructions, Python/Django version support matrix (canonical source for Django × Python compatibility) |
 | [oss-github-publisher](plugins/oss-github-publisher/) | Pre-flight audit before publishing a repo as open source — LICENSE, CI, pre-commit, secrets/PII/internal-hostname scans, GitHub Actions security, PyPI metadata audit |
 | [github-build-fixer](plugins/github-build-fixer/) | Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green |
@@ -36,8 +37,11 @@ Grouped by purpose:
 ```mermaid
 graph LR
   legacy["Legacy Python package<br/>(setup.py / Travis / six / etc.)"]
+  monolith["Django monolith<br/>(reusable app candidate inside)"]
   pup["python-upgrade-package<br/>(modernize tooling)"]
   p2c["python2-cleanup<br/>(clean Py2 cruft from source)"]
+  dxa["django-extract-app<br/>(extract reusable Django app)"]
+  dxac["django-extract-app-cleanup<br/>(wire package back to monolith)"]
   rg["readme-guardian<br/>(README polish)"]
   ossp["oss-github-publisher<br/>(pre-publication audit)"]
   publish["git push public<br/>or PyPI release"]
@@ -48,9 +52,13 @@ graph LR
   pup --> p2c
   pup --> rg
   p2c --> rg
+  monolith --> dxa
+  dxa --> rg
+  dxa --> ossp
+  ossp --> publish
+  publish --> dxac
   rg --> ossp
   pup --> ossp
-  ossp --> publish
   ci --> gbf
   gbf -. "no CI exists" .-> pup
 ```
@@ -63,6 +71,12 @@ graph LR
 4. `oss-github-publisher` — last-mile audit (LICENSE, secrets, internal hostnames, PyPI metadata, GH Actions security).
 5. Publish.
 6. If CI fails along the way, `github-build-fixer` diagnoses and fixes.
+
+**Recommended sequence** for extracting a reusable Django app from a monolithic project:
+
+1. `django-extract-app` — audit the app (8-point extractability check), then scaffold a standalone package with tests + CI + pre-commit + optional example project. Chains into `readme-guardian` and `oss-github-publisher` at the end.
+2. Publish the new package (PyPI, private index, or keep as editable install).
+3. `django-extract-app-cleanup` — wire the new package into the monolith as a dependency and remove the original `<app>/` directory. Verifies `manage.py check` + `makemigrations --check --dry-run` + the monolith's tests still pass.
 
 ### Decision-making
 
@@ -112,6 +126,7 @@ For GitHub PR review, use the official `/code-review:code-review` skill instead 
 - `readme-guardian` recommends running `python-upgrade-package` first when the project has legacy tooling — fixing the README without fixing the underlying `pyproject.toml` produces inconsistent badges.
 - `oss-github-publisher` recommends `readme-guardian` for README polish (audit will WARN on missing sections; readme-guardian fixes them properly).
 - `github-build-fixer` suggests `python-upgrade-package` when no CI workflow exists — fixing absent CI is a packaging-modernization concern, not a build-fixer one.
+- `django-extract-app` derives its Django × Python CI matrix from `readme-guardian` (same single source of truth as `python-upgrade-package`), and chains into `readme-guardian` + `oss-github-publisher` as the last two steps of an extraction. Its phase-2 sub-skill `django-extract-app-cleanup` is invoked separately after the extracted package is published.
 
 ## Installation
 
@@ -127,6 +142,7 @@ In Claude Code, run:
 
 ```
 /plugin install code-review-external@iplweb-claude-skills
+/plugin install django-extract-app@iplweb-claude-skills
 /plugin install github-build-fixer@iplweb-claude-skills
 /plugin install oss-github-publisher@iplweb-claude-skills
 /plugin install premortem@iplweb-claude-skills
@@ -146,6 +162,8 @@ Once installed, skills activate automatically based on context, or you can invok
   - `/code-review-external:code-review-codex` — only codex
   - `/code-review-external:code-review-opencode` — only opencode
   - `/code-review-external:code-review-claude` — only a Claude subagent
+- `/django-extract-app:django-extract-app` — extract a Django app from a monolithic project into a standalone reusable package (audit + scaffold + chain into readme-guardian + oss-github-publisher)
+  - `/django-extract-app:django-extract-app-cleanup` — phase-2 sub-skill: wire the new package back into the monolith and remove the original app directory
 - `/github-build-fixer:github-build-fixer` — when CI is failing on your branch
 - `/oss-github-publisher:oss-github-publisher` — before publishing a repo as open source
 - `/premortem:premortem` — to stress-test a plan, launch, or decision by imagining it has already failed

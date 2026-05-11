@@ -1,0 +1,18 @@
+{
+  "name": "django-extract-app",
+  "description": "Audits a Django app inside a monolithic project for extractability and extracts it into a standalone reusable Django package with tests, CI, pre-commit, and optional example project — then chains into readme-guardian and oss-github-publisher",
+  "version": "2026.05.6",
+  "author": {
+    "name": "Michal Pasternak"
+  },
+  "repository": "https://github.com/iplweb/claude-skills",
+  "license": "MIT",
+  "keywords": [
+    "django",
+    "reusable-app",
+    "extraction",
+    "refactoring",
+    "packaging",
+    "pytest"
+  ]
+}
