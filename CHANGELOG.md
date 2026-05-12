@@ -2,6 +2,25 @@
 
 All releases follow [CalVer](https://calver.org/) — `YYYY.0M.MICRO`. The marketplace and all plugins ship in lockstep: every release re-tags every plugin with the same version.
 
+## 2026.05.7 — 2026-05-12
+
+`readme-guardian` quality pass. Frontmatter description, badge handling, and the Django × Python matrix are all reworked to remove drift hazards and bring the skill closer in line with `superpowers:writing-skills` guidance.
+
+### Changed — `readme-guardian`
+
+- **Description rewritten to triggering conditions only.** Previous description summarized the workflow ("converts RST to Markdown, ensures proper badges..., short description, rationale, features list..."), which writing-skills warns becomes a shortcut Claude follows instead of reading the body. New description names only the situations that should trigger the skill (missing badges/install/version-support/rationale/features, RST README, post-`python-upgrade-package`, pre-publish).
+- **Django × Python matrix extracted to canonical reference file.** New `django-python-matrix.md` sibling file is the single owner of (Django, Python) compatibility data — snapshot date, upstream URLs (Django FAQ + downloads page), the matrix itself, and a step-by-step regeneration procedure. SKILL.md no longer inlines the table; it points to the reference and enforces a 90-day freshness gate before emission. Other skills that referenced the inline matrix (e.g., `python-upgrade-package` Step 2b) now have a single file to point at instead of a section in SKILL.md.
+- **Badge identifier derivation rules added (new Step 0f).** Previously the target template carried literal `OWNER`, `REPO`, `WORKFLOW`, and `PACKAGE` placeholders with no instruction for how to resolve them. New section walks each one to its source (`pyproject.toml` `[project].name`, `[project.urls].Repository` / `git remote`, `.github/workflows/` test workflow filter), with fallbacks. Includes a `curl https://pypi.org/pypi/${PACKAGE}/json` presence check that gates which badge set to emit.
+- **Two badge variants for PyPI vs non-PyPI packages.** Was previously a single set of shields routed through `img.shields.io/pypi/...`, which renders as "invalid" badges for packages not published to PyPI. Variant A keeps the existing PyPI shields; Variant B swaps in `github/license/OWNER/REPO`, a static Python-versions badge, and drops `pypi/v` entirely. Agent picks based on the Step 0f presence check.
+- **Django-mode skip note moved out of the README target's code fence.** A blockquote ("Skip this subsection entirely for Django packages...") had been added inside the fenced `markdown` block that represents the *emitted* README — risk of it being copied into a user's output. Now an HTML comment outside the fence + comment-style `<!-- only if … -->` markers on the matrix headings, so the agent's instructions don't leak into rendered output. Also dropped the awkward empty-corner cell in the Python-only matrix table.
+- **Step 5 commit is now opt-in.** Title changed from "Apply and Commit" to "Apply (and commit only on request)". Explicit "do not commit on your own initiative" instruction, with the commit-message template kept but conditional on the user asking. RST cleanup also clarified: `git rm` if tracked.
+- **Version-support analysis row updated.** Step 2 checklist now distinguishes Django-mode (Django × Python only) from non-Django (Python only) and adds a `DUPLICATED` status so the analysis flags READMEs that emit both tables.
+- **Common Mistakes row added for the duplicate-matrix pitfall** in Django projects, and a Content generation rule (#5) forbidding a standalone Python matrix when Django is detected.
+
+### Iron law clarified
+
+The compatibility data lives in exactly one place (`django-python-matrix.md`); skills that emit a per-project matrix derive from that file, never inline a copy. Freshness check is mandatory before emission — a stale matrix in a user's README is a failure mode, not a minor inaccuracy.
+
 ## 2026.05.6 — 2026-05-11
 
 New plugin release: `django-extract-app` adds a guided workflow for extracting a Django app embedded in a monolithic project into a standalone reusable package. Designed to chain into the existing `readme-guardian` + `oss-github-publisher` pipeline so the extracted package ships with the same level of polish as a greenfield OSS project.

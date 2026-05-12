@@ -1,6 +1,6 @@
 ---
 name: readme-guardian
-description: Use when a Python project's README needs improvement — converts RST to Markdown, ensures proper badges (CI, PyPI, docs), short description, rationale, features list, multi-platform installation instructions (uv + pip), and a Python/Django version support matrix derived from project config
+description: Use when a Python project's README is missing badges, install instructions, version support info, rationale, or features; when README is in RST and should be Markdown; after running python-upgrade-package; or before publishing a Python package to PyPI or GitHub
 ---
 
 # README Guardian
@@ -84,6 +84,26 @@ Note the format, structure, and content already present.
 - **CHANGELOG / HISTORY**: May provide context for features
 - **LICENSE**: Confirm license type for the badge
 
+### 0f. Badge identifiers (derive, don't hardcode)
+
+The target README references badges built from four identifiers. Resolve each before emitting any badge URL — never leave a literal `OWNER`, `REPO`, `WORKFLOW`, or `PACKAGE` in the output.
+
+| Identifier | How to derive | Fallback if not found |
+|---|---|---|
+| `PACKAGE` | `[project].name` in `pyproject.toml` (the PyPI dist name, not the import name) | Ask the user |
+| `OWNER` / `REPO` | Parse `[project.urls].Repository` (preferred); else `git remote get-url origin` and extract `OWNER/REPO` from the GitHub URL | Ask the user — do not emit a CI badge without this |
+| `WORKFLOW` | `ls .github/workflows/` and pick the workflow whose jobs run tests (look for `pytest`, `tox`, `test` job names). Skip `release.yml`, `publish.yml`, `codeql.yml`, `dependabot.yml`, etc. | If multiple test workflows exist, pick the one named `tests.yml` / `ci.yml` / `test.yml`; otherwise ask |
+| Docs slug | `[project.urls].Documentation` host. If `readthedocs.io`, use the project slug from the URL. If `pages.github.dev` or similar, the docs badge format differs — see badge alternatives below. | Omit the docs badge |
+
+**PyPI presence check** (gates which badges to emit):
+
+```bash
+# Quick check — does this package exist on PyPI?
+curl -fsS -o /dev/null "https://pypi.org/pypi/${PACKAGE}/json" && echo "on-pypi" || echo "not-on-pypi"
+```
+
+If the package is **not on PyPI**, the `pypi/v`, `pypi/l`, and `pypi/pyversions` shields will render as "invalid" badges. Use the non-PyPI alternatives in the badge section of Step 3 instead.
+
 ---
 
 ## Step 1: RST → Markdown Conversion (if needed)
@@ -140,7 +160,7 @@ Read the existing README (now guaranteed to be `.md` after Step 1) and check for
 | **Rationale** | Why does this package exist? What problem does it solve? | PRESENT / MISSING |
 | **Features** | Bullet list of key features/capabilities | PRESENT / MISSING / WEAK |
 | **Installation** | Install commands for macOS, Windows, Linux with uv + pip | PRESENT / MISSING / INCOMPLETE |
-| **Version support** | Python versions supported (+ Django matrix if applicable) | PRESENT / MISSING / OUTDATED |
+| **Version support** | For Django projects: Django × Python matrix only. For non-Django: Python version matrix. Never both. | PRESENT / MISSING / OUTDATED / DUPLICATED |
 | **Basic usage** | Quick example or getting started | PRESENT / MISSING |
 | **License** | License mention (even just one line) | PRESENT / MISSING |
 
@@ -184,12 +204,20 @@ Based on user's decision (patch or rewrite), generate the README. Below is the t
 ```markdown
 # <package-name>
 
-<!-- badges -->
+<!-- badges — pick the variant that matches the project; identifiers come from Step 0f -->
+
+<!-- Variant A: package IS on PyPI -->
 [![Tests](https://github.com/OWNER/REPO/actions/workflows/WORKFLOW.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/WORKFLOW.yml)
 [![Python Version](https://img.shields.io/pypi/pyversions/PACKAGE.svg)](https://pypi.org/project/PACKAGE/)
 [![PyPI Version](https://img.shields.io/pypi/v/PACKAGE.svg)](https://pypi.org/project/PACKAGE/)
 [![License](https://img.shields.io/pypi/l/PACKAGE.svg)](LICENSE)
-<!-- optional: docs badge if documentation URL exists -->
+
+<!-- Variant B: package is NOT on PyPI (drop pypi/* shields — they render "invalid") -->
+[![Tests](https://github.com/OWNER/REPO/actions/workflows/WORKFLOW.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/WORKFLOW.yml)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/OWNER/REPO)
+[![License](https://img.shields.io/github/license/OWNER/REPO)](LICENSE)
+
+<!-- Optional docs badge (both variants): only if Documentation URL exists -->
 [![Documentation](https://readthedocs.org/projects/PACKAGE/badge/)](https://PACKAGE.readthedocs.io/)
 
 <short description from pyproject.toml or existing README — 1-2 sentences>
@@ -211,40 +239,29 @@ Based on user's decision (patch or rewrite), generate the README. Below is the t
 
 ## Supported versions
 
-### Python
+<!-- For Django projects: render ONLY the Django × Python subsection below.
+     Do NOT emit a separate Python-only table — its data is already in the
+     Django matrix columns. For non-Django projects: render ONLY the Python
+     subsection. Never emit both. -->
 
-| Python | 3.10 | 3.11 | 3.12 | 3.13 |
-|--------|------|------|------|------|
-|        | ✓    | ✓    | ✓    | ✓    |
+### Python <!-- only if NOT a Django package -->
 
-<Derive from requires-python and CI matrix.>
+| 3.10 | 3.11 | 3.12 | 3.13 |
+|------|------|------|------|
+| ✓    | ✓    | ✓    | ✓    |
 
-### Django (only if Django package)
+<Derive columns from `requires-python` (drop pre-floor columns); mark ✓ only for versions the CI matrix actually tests.>
 
-**Canonical Django × Python compatibility matrix** — this skill is the source of truth for this table; other skills (e.g., `python-upgrade-package` Step 2b) reference it.
+### Django × Python <!-- only if a Django package -->
 
-Authoritative upstream: <https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django>
+<!-- The actual matrix data is NOT inlined here. It is loaded from
+     django-python-matrix.md (sibling file) and filtered to this project's
+     supported range. See "Deriving the Django × Python matrix" below the
+     target structure for the procedure. -->
 
-**Snapshot as of 2026-05-08.** Re-check upstream every run — Django ships new releases and Python versions hit EOL on a regular cadence; this snapshot drifts.
-
-| Django  | 3.10 | 3.11 | 3.12 | 3.13 | 3.14 | Status                                  |
-|---------|------|------|------|------|------|-----------------------------------------|
-| 4.2 LTS | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2026                            |
-| 5.0     | ✓    | ✓    | ✓    | —    | —    | EOL Apr 2025                            |
-| 5.1     | ✓    | ✓    | ✓    | ✓    | —    | EOL Dec 2025                            |
-| 5.2 LTS | ✓    | ✓    | ✓    | ✓    | ✓    | Active LTS (extended support Apr 2028)  |
-| 6.0     | —    | —    | ✓    | ✓    | ✓    | Mainstream Aug 2026, extended Apr 2027  |
-
-(Pre-3.10 columns omitted: Python 3.8 and 3.9 are EOL; the modern `requires-python` floor is `>=3.10`. Add columns only if the project explicitly supports older Pythons.)
-
-**Currently supported Django series (2026-05-08): 5.2 LTS and 6.0.** Everything else in the table is included for historical reference and to help projects decide whether to bump their floor — drop those rows when generating a per-project matrix unless the project's constraint genuinely allows them.
-
-**How to derive the per-project table:**
-1. Read the project's Django version constraint (from `pyproject.toml` `[project] dependencies`)
-2. Filter to versions allowed by that constraint (e.g., `django>=4.2` → all 4 rows; `django>=5.1` → only 5.1 + 5.2 LTS)
-3. **Drop EOL Django versions** unless the project explicitly demands them (typically: keep only LTS rows + active non-LTS)
-4. Filter columns to match `requires-python` (e.g., `>=3.11` → drop the 3.10 column)
-5. Mark ✓ at the intersection of each (Django, Python) pair the project actually tests in CI
+| Django  | <python cols filtered to `requires-python`> | Status |
+|---------|---------------------------------------------|--------|
+| <Django series allowed by project's dependency constraint, EOL rows dropped unless required, ✓ at each (Django, Python) pair actually tested in CI> | |
 
 ## Installation
 
@@ -310,6 +327,27 @@ from <package> import <main_thing>
 <License name> — see [LICENSE](LICENSE) for details.
 ```
 
+### Deriving the Django × Python matrix
+
+This step applies **only when the project is a Django package** (see Step 0c). The canonical data lives in [django-python-matrix.md](django-python-matrix.md) — that file is the single owner of the (Django release, Python version) compatibility data; this skill never inlines a copy.
+
+**Procedure:**
+
+1. **Read `django-python-matrix.md`** from this skill's directory.
+2. **Check the freshness rule** stated at the top of that file (snapshot date + 90 days). If stale, run its **Regenerating this file** procedure *before* continuing — do not emit a stale matrix into a user's README.
+3. **Filter rows** to Django series allowed by the project's dependency constraint in `pyproject.toml` (e.g., `django>=5.1` → keep 5.1, 5.2 LTS, 6.0; drop 4.2 and 5.0).
+4. **Drop EOL rows** unless the project's constraint genuinely demands them — by default keep LTS rows plus any currently-supported non-LTS series.
+5. **Filter columns** to the Python range allowed by `requires-python` (e.g., `>=3.11,<3.14` → keep 3.11, 3.12, 3.13; drop 3.10 and 3.14).
+6. **Set ✓** at each (Django, Python) intersection the project actually tests in CI. Cross-reference the workflow matrix in `.github/workflows/*.yml` — do not infer support from the canonical table alone; CI evidence is required.
+7. **Emit** the filtered table in place of the placeholder block in the target structure.
+
+Worked example — a project with `requires-python = ">=3.11"`, `django>=5.2`, and CI testing all (Django, Python) pairs:
+
+| Django  | 3.11 | 3.12 | 3.13 | 3.14 |
+|---------|------|------|------|------|
+| 5.2 LTS | ✓    | ✓    | ✓    | ✓    |
+| 6.0     | —    | ✓    | ✓    | ✓    |
+
 ### Content generation rules
 
 1. **Never invent features** — only list what you can verify from the code or existing docs
@@ -320,7 +358,8 @@ from <package> import <main_thing>
    - Docs badge: only if documentation URL exists in metadata
    - License badge: only if LICENSE file exists
 4. **Version matrix**: Only mark ✓ for versions actually tested in CI — don't guess
-5. **Installation**: If the package has no platform-specific dependencies, just show `uv add` and `pip install` without the platform subsections
+5. **Django projects must not include a standalone Python matrix**: if Django is detected, render only the Django × Python matrix. The Python-only matrix is for non-Django Python packages; emitting both duplicates the Python column data and invites drift.
+6. **Installation**: If the package has no platform-specific dependencies, just show `uv add` and `pip install` without the platform subsections
 
 ---
 
@@ -352,11 +391,12 @@ Use AskUserQuestion:
 
 ---
 
-## Step 5: Apply and Commit
+## Step 5: Apply (and commit only on request)
 
-1. Write the updated `README.md`
-2. If RST was converted, ensure `README.rst` is deleted and `pyproject.toml` updated
-3. Commit:
+1. Write the updated `README.md`.
+2. If RST was converted, ensure `README.rst` is deleted (via `git rm` if tracked) and `pyproject.toml` updated.
+3. **Do not commit on your own initiative.** Report the diff to the user and stop. Commit only if the user asks ("commit it", "make a commit", etc.).
+4. **When the user asks to commit**, use a message along these lines (adjust to actual changes — omit lines for sections that weren't touched):
    ```
    Update README with badges, install instructions, and version matrix
 
@@ -379,6 +419,7 @@ Use AskUserQuestion:
 | Discarding existing README content the user wanted to keep | Always ask before rewriting |
 | Wrong GitHub Actions workflow filename in badge URL | Read actual `.github/workflows/` directory |
 | Outdated Django compatibility info | Verify against Django's actual release compatibility |
+| Showing a Python-only matrix alongside the Django × Python matrix | For Django projects, render only the Django × Python matrix — its columns already convey Python support |
 | Writing the rationale yourself without flagging it | If you wrote it, tell the user "I inferred this — please verify" |
 
 ## Red Flags — STOP
