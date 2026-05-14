@@ -1,7 +1,7 @@
 {
   "name": "premortem",
   "description": "Runs a Klein-style premortem on a plan, launch, hire, pricing change, or strategy — assumes it failed 6 months from now and works backward to expose blind spots and produce a revised plan",
-  "version": "2026.05.7",
+  "version": "2026.05.8",
   "author": {
     "name": "Michal Pasternak"
   },

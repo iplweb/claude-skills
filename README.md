@@ -17,6 +17,12 @@ Grouped by purpose:
 | [oss-github-publisher](plugins/oss-github-publisher/) | Pre-flight audit before publishing a repo as open source — LICENSE, CI, pre-commit, secrets/PII/internal-hostname scans, GitHub Actions security, PyPI metadata audit |
 | [github-build-fixer](plugins/github-build-fixer/) | Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green |
 
+### Code quality & refactoring
+
+| Plugin | Description |
+|--------|-------------|
+| [long-file-splitter](plugins/long-file-splitter/) | Scans a repo for source files over a line threshold (default 600 LoC) in Python, JavaScript/TypeScript, HTML, Vue/Svelte — and for files dominated by a single mega-constant. Classifies each file (grab-bag utils / god-class / mega-constant / mixed) and writes a per-file split proposal with concrete module names, what moves where, public-API preservation strategy, and risks. Proposal-first; optional guided execution one file at a time, one commit per logical move, tests after each |
+
 ### Decision-making (premortems)
 
 | Plugin | Description |
@@ -144,6 +150,7 @@ In Claude Code, run:
 /plugin install code-review-external@iplweb-claude-skills
 /plugin install django-extract-app@iplweb-claude-skills
 /plugin install github-build-fixer@iplweb-claude-skills
+/plugin install long-file-splitter@iplweb-claude-skills
 /plugin install oss-github-publisher@iplweb-claude-skills
 /plugin install premortem@iplweb-claude-skills
 /plugin install premortem-multiple@iplweb-claude-skills
@@ -165,6 +172,7 @@ Once installed, skills activate automatically based on context, or you can invok
 - `/django-extract-app:django-extract-app` — extract a Django app from a monolithic project into a standalone reusable package (audit + scaffold + chain into readme-guardian + oss-github-publisher)
   - `/django-extract-app:django-extract-app-cleanup` — phase-2 sub-skill: wire the new package back into the monolith and remove the original app directory
 - `/github-build-fixer:github-build-fixer` — when CI is failing on your branch
+- `/long-file-splitter:long-file-splitter` — find source files over a line threshold and get a per-file split proposal (Python / JS / TS / HTML / Vue / Svelte); proposal-first, optional guided execution
 - `/oss-github-publisher:oss-github-publisher` — before publishing a repo as open source
 - `/premortem:premortem` — to stress-test a plan, launch, or decision by imagining it has already failed
 - `/premortem-multiple:premortem-multiple` — three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into a single unified document
