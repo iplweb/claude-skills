@@ -1,0 +1,15 @@
+title = "iplweb-claude-skills gitleaks config"
+
+# Extend gitleaks' default ruleset; only add allowlisting on top.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Skill files that document secret-detection patterns are not real secrets"
+# oss-github-publisher's SKILL.md literally lists the markers and token regexes
+# it scans for (private-key headers, vendor API-key prefixes, DB connection
+# URLs with embedded credentials) — a secret scanner inevitably flags its own
+# ruleset. Allowlist that one documentation file.
+paths = [
+  '''plugins/oss-github-publisher/skills/.*/SKILL\.md''',
+]

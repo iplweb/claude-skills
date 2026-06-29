@@ -1,0 +1,17 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      # consider SHA-pinning these actions (oss-github-publisher would flag tags)
+      - uses: actions/checkout@v4
+      - name: Validate marketplace invariants
+        run: python3 scripts/validate.py

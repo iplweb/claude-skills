@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+        # oss-github-publisher SKILL.md lists key markers ("BEGIN RSA PRIVATE
+        # KEY", …) as detection patterns, not real keys — would false-positive.
+        exclude: ^plugins/oss-github-publisher/skills/.*/SKILL\.md$
+      - id: check-added-large-files
+      - id: check-yaml
+  - repo: local
+    hooks:
+      - id: validate-marketplace
+        name: validate marketplace invariants
+        entry: python3 scripts/validate.py
+        language: system
+        pass_filenames: false
+        always_run: true
