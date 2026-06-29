@@ -36,6 +36,21 @@ Grouped by purpose:
 |--------|-------------|
 | [code-review-external](plugins/code-review-external/) | Parallel external code review with codex, opencode, and a Claude subagent — three independent opinions side-by-side + cross-check (consensus / divergences / contradictions) |
 
+### Support / ops (iplweb-specific)
+
+| Plugin | Description |
+|--------|-------------|
+| [freshdesk](plugins/freshdesk/) | Review of pending Freshdesk tickets (iplweb) — ranks by composite priority (SLA → due date → priority → age), shows a readable list and drives action (open, show conversation, change status/priority, draft a reply). Companion to `ticket-resolver`. |
+| [ticket-resolver](plugins/ticket-resolver/) | Handles a **single** ticket (Freshdesk or GitHub issue) end-to-end — triage (explain vs fix), draft a client reply for approval, or branch + worktree + TDD repro test + fix + PR + towncrier newsfragment, with internal trace notes. |
+
+> These two hardcode the iplweb Freshdesk account and the `iplweb/bpp` repo — they live here for versioning/reuse, not as general reusable tools.
+
+### Extras (not plugins)
+
+| Tool | Description |
+|------|-------------|
+| [statusline](statusline/) | `statusLine` script for Claude Code — shows `user@host`, `~/path`, git branch, % of 5h billing block used (via [ccusage](https://github.com/ryoppippi/ccusage)), and % of weekly token budget. Tuned for light terminal themes. |
+
 ## Skill graph — when to use what
 
 ### Python project lifecycle
@@ -286,6 +301,18 @@ This marketplace uses [CalVer](https://calver.org/) — `YYYY.0M.MICRO` (e.g. `2
 All plugins ship in **lockstep**: every release re-tags every plugin and the marketplace itself with the same version. There are no per-plugin version trains — if any plugin changes, the next release bumps everything.
 
 Current version: see [`CHANGELOG.md`](CHANGELOG.md) for the release history. To cut a release run `scripts/bump-version.sh <YYYY.0M.MICRO>` (or `--auto` for the next sensible value).
+
+## Adding plugins & validation
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full layout and invariants. In short:
+
+```bash
+python3 scripts/new-plugin.py my-plugin "One-line description."   # scaffold
+python3 scripts/validate.py                                       # check invariants
+pre-commit run --all-files                                        # json + whitespace + validate
+```
+
+`scripts/validate.py` enforces the marketplace invariants (name == directory == entry, lockstep versions, marketplace ↔ `plugins/` in sync, every `SKILL.md` has `name`/`description` front matter) and runs in CI on every push/PR via [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
 
 ## License
 
