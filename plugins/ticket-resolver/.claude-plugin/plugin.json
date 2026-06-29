@@ -1,0 +1,18 @@
+{
+  "name": "ticket-resolver",
+  "description": "Handles a single support ticket end-to-end — from a Freshdesk (iplweb) or GitHub issue: triage (explain vs fix), draft a client reply for approval, or branch + worktree + TDD repro test + fix + PR + towncrier newsfragment, with internal trace notes. iplweb/BPP-specific.",
+  "version": "2026.05.8",
+  "author": {
+    "name": "Michal Pasternak"
+  },
+  "repository": "https://github.com/iplweb/claude-skills",
+  "license": "MIT",
+  "keywords": [
+    "freshdesk",
+    "github-issues",
+    "support",
+    "triage",
+    "tdd",
+    "pull-request"
+  ]
+}

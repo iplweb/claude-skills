@@ -95,6 +95,24 @@
       "author": {
         "name": "Michal Pasternak"
       }
+    },
+    {
+      "name": "freshdesk",
+      "source": "./plugins/freshdesk",
+      "description": "Review of pending Freshdesk tickets (iplweb account) — fetches open tickets, ranks by composite priority (SLA → due date → priority → age), shows a readable list and drives action. Companion to ticket-resolver. iplweb-specific.",
+      "version": "2026.05.8",
+      "author": {
+        "name": "Michal Pasternak"
+      }
+    },
+    {
+      "name": "ticket-resolver",
+      "source": "./plugins/ticket-resolver",
+      "description": "Handles a single support ticket end-to-end — from a Freshdesk (iplweb) or GitHub issue: triage (explain vs fix), draft a client reply for approval, or branch + worktree + TDD repro test + fix + PR + towncrier newsfragment, with internal trace notes. iplweb/BPP-specific.",
+      "version": "2026.05.8",
+      "author": {
+        "name": "Michal Pasternak"
+      }
     }
   ]
 }
