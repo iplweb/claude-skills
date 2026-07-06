@@ -1,7 +1,7 @@
 {
   "name": "iplweb-claude-skills",
   "description": "Claude Code skills for Python and DevOps workflows",
-  "version": "2026.05.8",
+  "version": "2026.07.1",
   "owner": {
     "name": "Michal Pasternak"
   },
@@ -20,6 +20,15 @@
       "source": "./plugins/django-extract-app",
       "description": "Audits a Django app inside a monolithic project for extractability and extracts it into a standalone reusable Django package with tests, CI, pre-commit, and optional example project. Includes a separate cleanup sub-skill for wiring the package back into the original project.",
       "version": "2026.05.8",
+      "author": {
+        "name": "Michal Pasternak"
+      }
+    },
+    {
+      "name": "django-run-site",
+      "source": "./plugins/django-run-site",
+      "description": "Reference for working with a local Django dev stack managed by run-site (django-run-site) and django-dev-helpers — recognizing a run-site project, where the .run-site-config sidecar and .dev_helpers_* dotfiles live, reading the web/Postgres/Redis/SQLite endpoints and ports, autologin, and what the run-site CLI can do",
+      "version": "2026.07.1",
       "author": {
         "name": "Michal Pasternak"
       }
