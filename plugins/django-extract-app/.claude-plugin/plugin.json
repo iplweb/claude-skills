@@ -1,7 +1,7 @@
 {
   "name": "django-extract-app",
   "description": "Audits a Django app inside a monolithic project for extractability and extracts it into a standalone reusable Django package with tests, CI, pre-commit, and optional example project — then chains into readme-guardian and oss-github-publisher",
-  "version": "2026.05.8",
+  "version": "2026.07.2",
   "author": {
     "name": "Michal Pasternak"
   },

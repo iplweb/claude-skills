@@ -2,6 +2,24 @@
 
 All releases follow [CalVer](https://calver.org/) — `YYYY.0M.MICRO`. The marketplace and all plugins ship in lockstep: every release re-tags every plugin with the same version.
 
+## 2026.07.2 — 2026-07-14
+
+Maintenance release: retires the two multi-CLI wrapper plugins (`code-review-external`, `premortem-multiple`) that shelled out to external `codex` / `opencode` binaries. The single-perspective `premortem` plugin is unaffected and stays. This release also folds in `django-run-site`, added during the 2026.07.1 catalog bump that never shipped as a lockstep release.
+
+### Removed
+
+- **`code-review-external` plugin** — removed in full: the wrapper skill plus `code-review-codex`, `code-review-opencode`, `code-review-claude`, and the shared `standard-review-prompt.md` / `target-detection.md` / `write-directive.md` / `tmux-runner.md` files. For GitHub PR review use the official `/code-review:code-review` skill; for a local diff, `/code-review`.
+- **`premortem-multiple` plugin** — removed in full: the wrapper skill plus `premortem-codex`, `premortem-opencode`, `premortem-claude`, and the shared `standard-premortem-prompt.md` / `write-directive.md` / `tmux-runner.md` files.
+- Both entries dropped from `marketplace.json`; all references removed from `README.md` (plugin tables, the Decision-making and Code-review skill-graph diagrams, the `/plugin install` lines, the usage bullets, and the `code-review-external — argument forms` table).
+
+### Added
+
+- **`django-run-site` plugin** — reference skill for a local Django dev stack managed by `run-site` / `django-dev-helpers`: recognizing a run-site project, locating the `.run-site-config` sidecar and `.dev_helpers_*` dotfiles, reading web/Postgres/Redis/SQLite endpoints and ports, the autologin recipe, and the `run-site` CLI surface. (Introduced in the 2026.07.1 catalog bump; ships in a lockstep release here for the first time.)
+
+### Repository
+
+- Lockstep version bump: the marketplace and all 11 remaining plugins move to 2026.07.2.
+
 ## 2026.05.8 — 2026-05-14
 
 New plugin release: `long-file-splitter` adds a repo-wide audit for source files that have grown past a configurable line threshold (default 600 LoC), with per-file split proposals that name concrete new modules, the symbols that move into each, and the strategy for preserving the public API. Proposal-first by design — the skill does not auto-refactor; an opt-in guided execution phase performs the moves one file at a time, one commit per logical extraction, with the test suite re-run between commits.

@@ -1,25 +1,16 @@
 {
   "name": "iplweb-claude-skills",
   "description": "Claude Code skills for Python and DevOps workflows",
-  "version": "2026.07.1",
+  "version": "2026.07.2",
   "owner": {
     "name": "Michal Pasternak"
   },
   "plugins": [
     {
-      "name": "code-review-external",
-      "source": "./plugins/code-review-external",
-      "description": "Parallel external code review with codex, opencode, and a Claude subagent — auto-detects target (uncommitted diff, commit, file, or directory), runs all three reviewers concurrently, surfaces three independent opinions side-by-side. Includes individual skills for each reviewer.",
-      "version": "2026.05.8",
-      "author": {
-        "name": "Michal Pasternak"
-      }
-    },
-    {
       "name": "django-extract-app",
       "source": "./plugins/django-extract-app",
       "description": "Audits a Django app inside a monolithic project for extractability and extracts it into a standalone reusable Django package with tests, CI, pre-commit, and optional example project. Includes a separate cleanup sub-skill for wiring the package back into the original project.",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -28,7 +19,7 @@
       "name": "django-run-site",
       "source": "./plugins/django-run-site",
       "description": "Reference for working with a local Django dev stack managed by run-site (django-run-site) and django-dev-helpers — recognizing a run-site project, where the .run-site-config sidecar and .dev_helpers_* dotfiles live, reading the web/Postgres/Redis/SQLite endpoints and ports, autologin, and what the run-site CLI can do",
-      "version": "2026.07.1",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -37,7 +28,7 @@
       "name": "github-build-fixer",
       "source": "./plugins/github-build-fixer",
       "description": "Diagnoses and fixes failing GitHub Actions CI builds — reads logs, proposes fixes, pushes, polls until green",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -46,7 +37,7 @@
       "name": "long-file-splitter",
       "source": "./plugins/long-file-splitter",
       "description": "Scans a repo for oversized source files (Python, JS/TS, HTML, Vue/Svelte) above a line threshold, classifies why each one grew (grab-bag utils, god-class, mega-constant, mixed concerns), and produces a per-file split proposal with concrete module names and rationale — proposal-first, optional guided execution one file at a time",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -55,7 +46,7 @@
       "name": "oss-github-publisher",
       "source": "./plugins/oss-github-publisher",
       "description": "Pre-flight audit before publishing a repo as open source — checks LICENSE, CI, pre-commit, scans for secrets and PII",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -64,16 +55,7 @@
       "name": "premortem",
       "source": "./plugins/premortem",
       "description": "Klein-style premortem on plans, launches, hires, pricing, or strategy — assumes failure 6 months out and works backward to expose blind spots",
-      "version": "2026.05.8",
-      "author": {
-        "name": "Michal Pasternak"
-      }
-    },
-    {
-      "name": "premortem-multiple",
-      "source": "./plugins/premortem-multiple",
-      "description": "Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into a single unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan. Includes individual skills for each reviewer.",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -82,7 +64,7 @@
       "name": "python-upgrade-package",
       "source": "./plugins/python-upgrade-package",
       "description": "Modernizes legacy Python packages step-by-step — setup.py to uv + pyproject.toml, Travis to GitHub Actions, pytest migration",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -91,7 +73,7 @@
       "name": "python2-cleanup",
       "source": "./plugins/python2-cleanup",
       "description": "Removes Python 2 compatibility cruft from a Py3 codebase — six, __future__, unicode()/basestring/xrange, python_2_unicode_compatible, iteritems, has_key, u'' prefix, __metaclass__, stdlib renames, dunder renames — category by category, one commit each",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -100,7 +82,7 @@
       "name": "readme-guardian",
       "source": "./plugins/readme-guardian",
       "description": "Analyzes and improves Python project READMEs — badges, install instructions, version support matrix",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -109,7 +91,7 @@
       "name": "freshdesk",
       "source": "./plugins/freshdesk",
       "description": "Review of pending Freshdesk tickets (iplweb account) — fetches open tickets, ranks by composite priority (SLA → due date → priority → age), shows a readable list and drives action. Companion to ticket-resolver. iplweb-specific.",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }
@@ -118,7 +100,7 @@
       "name": "ticket-resolver",
       "source": "./plugins/ticket-resolver",
       "description": "Handles a single support ticket end-to-end — from a Freshdesk (iplweb) or GitHub issue: triage (explain vs fix), draft a client reply for approval, or branch + worktree + TDD repro test + fix + PR + towncrier newsfragment, with internal trace notes. iplweb/BPP-specific.",
-      "version": "2026.05.8",
+      "version": "2026.07.2",
       "author": {
         "name": "Michal Pasternak"
       }

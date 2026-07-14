@@ -28,13 +28,6 @@ Grouped by purpose:
 | Plugin | Description |
 |--------|-------------|
 | [premortem](plugins/premortem/) | Klein-style premortem on plans, launches, hires, pricing, or strategy — assumes failure 6 months out and works backward; produces visual HTML report |
-| [premortem-multiple](plugins/premortem-multiple/) | Three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into one unified document — consensus failures, divergent blind spots, hidden assumptions, combined revised plan; HTML report |
-
-### Code review
-
-| Plugin | Description |
-|--------|-------------|
-| [code-review-external](plugins/code-review-external/) | Parallel external code review with codex, opencode, and a Claude subagent — three independent opinions side-by-side + cross-check (consensus / divergences / contradictions) |
 
 ### Support / ops (iplweb-specific)
 
@@ -101,44 +94,7 @@ graph LR
 
 ### Decision-making
 
-```mermaid
-graph LR
-  single["/premortem<br/>(conversational, single perspective<br/>+ HTML report)"]
-  multi["/premortem-multiple<br/>(three CLIs in parallel)"]
-  pcodex["premortem-codex"]
-  popencode["premortem-opencode"]
-  pclaude["premortem-claude"]
-  meta["meta-synthesis<br/>(consensus / divergences / contradictions)<br/>+ HTML + markdown + transcript"]
-
-  multi --> pcodex
-  multi --> popencode
-  multi --> pclaude
-  pcodex --> meta
-  popencode --> meta
-  pclaude --> meta
-```
-
-Use `/premortem` when one perspective is enough (lower-stakes plan or quick stress-test). Use `/premortem-multiple` when the decision warrants three independent opinions (higher-stakes launch / hire / pricing change with significant downside).
-
-### Code review
-
-```mermaid
-graph LR
-  cre["/code-review-external<br/>(wrapper)"]
-  codex["code-review-codex"]
-  opencode["code-review-opencode"]
-  claude["code-review-claude"]
-  cross["cross-check<br/>(consensus / divergences / contradictions)"]
-
-  cre --> codex
-  cre --> opencode
-  cre --> claude
-  codex --> cross
-  opencode --> cross
-  claude --> cross
-```
-
-For GitHub PR review, use the official `/code-review:code-review` skill instead — it has a multi-agent pipeline with confidence scoring and posts the comment back to the PR. The skills above are for **local** targets (uncommitted changes, a commit, a file, a directory, or a free-form scope).
+`/premortem` runs a Klein-style premortem on a plan, launch, hire, pricing, or strategy — a single conversational perspective that assumes failure six months out and works backward, producing a visual HTML report. Use it to stress-test a decision by imagining it has already failed.
 
 ### Cross-references between skills
 
@@ -162,13 +118,11 @@ In Claude Code, run:
 ### Step 2: Install the plugins you want
 
 ```
-/plugin install code-review-external@iplweb-claude-skills
 /plugin install django-extract-app@iplweb-claude-skills
 /plugin install github-build-fixer@iplweb-claude-skills
 /plugin install long-file-splitter@iplweb-claude-skills
 /plugin install oss-github-publisher@iplweb-claude-skills
 /plugin install premortem@iplweb-claude-skills
-/plugin install premortem-multiple@iplweb-claude-skills
 /plugin install python-upgrade-package@iplweb-claude-skills
 /plugin install python2-cleanup@iplweb-claude-skills
 /plugin install readme-guardian@iplweb-claude-skills
@@ -180,36 +134,15 @@ Install only the ones you need — each plugin is independent.
 
 Once installed, skills activate automatically based on context, or you can invoke them explicitly:
 
-- `/code-review-external:code-review-external` — three parallel reviews (codex + opencode + Claude subagent) of a diff, commit, file, or directory
-  - `/code-review-external:code-review-codex` — only codex
-  - `/code-review-external:code-review-opencode` — only opencode
-  - `/code-review-external:code-review-claude` — only a Claude subagent
 - `/django-extract-app:django-extract-app` — extract a Django app from a monolithic project into a standalone reusable package (audit + scaffold + chain into readme-guardian + oss-github-publisher)
   - `/django-extract-app:django-extract-app-cleanup` — phase-2 sub-skill: wire the new package back into the monolith and remove the original app directory
 - `/github-build-fixer:github-build-fixer` — when CI is failing on your branch
 - `/long-file-splitter:long-file-splitter` — find source files over a line threshold and get a per-file split proposal (Python / JS / TS / HTML / Vue / Svelte); proposal-first, optional guided execution
 - `/oss-github-publisher:oss-github-publisher` — before publishing a repo as open source
 - `/premortem:premortem` — to stress-test a plan, launch, or decision by imagining it has already failed
-- `/premortem-multiple:premortem-multiple` — three parallel premortems (codex + opencode + Claude subagent) on the same plan, synthesized into a single unified document
-  - `/premortem-multiple:premortem-codex` — only codex
-  - `/premortem-multiple:premortem-opencode` — only opencode
-  - `/premortem-multiple:premortem-claude` — only a Claude subagent
 - `/python-upgrade-package:python-upgrade-package` — to modernize a legacy Python package (tooling only)
 - `/python2-cleanup:python2-cleanup` — to remove Python 2 compatibility cruft from a Py3 codebase (source code, category by category)
 - `/readme-guardian:readme-guardian` — to improve a project's README
-
-### code-review-external — argument forms
-
-All four `code-review-external` skills accept the same positional argument and auto-detect the target type:
-
-| Argument | Target |
-|----------|--------|
-| _(none)_ | Uncommitted changes (staged + unstaged + untracked) |
-| `HEAD~3`, `<sha>`, branch name | A single commit (`git rev-parse` resolvable) |
-| `path/to/file.py` | A single file (review the whole file) |
-| `path/to/dir/` | A directory (review key files in it) |
-
-Reviews are saved to `/tmp/code-review-{codex,opencode,claude}-<timestamp>.md` and printed side-by-side. The `code-review-external` wrapper requires both `codex` and `opencode` CLIs on `$PATH`; the individual sub-skills only require their own tool. For GitHub PR review use the official `/code-review:code-review` skill instead — it has a multi-agent pipeline with confidence scoring and posts the comment back to the PR.
 
 ## Using with Codex
 

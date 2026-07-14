@@ -1,7 +1,7 @@
 {
   "name": "django-run-site",
   "description": "Reference for working with a local Django dev stack managed by run-site (django-run-site) and/or django-dev-helpers — how to tell whether the dev server is running, where the .run-site-config sidecar and .dev_helpers_* dotfiles live, how to read the web/Postgres/Redis/SQLite endpoints and ports, how to make an authenticated request via autologin, and what run-site can do",
-  "version": "2026.07.1",
+  "version": "2026.07.2",
   "author": {
     "name": "Michal Pasternak"
   },

@@ -1,7 +1,7 @@
 {
   "name": "long-file-splitter",
   "description": "Scans a repo for oversized source files (Python, JavaScript/TypeScript, HTML, Vue/Svelte) above a line threshold, classifies why each one grew (grab-bag utils, god-class, mega-constant, mixed concerns), and produces a per-file split proposal with concrete module names and rationale — proposal-first, optional guided execution",
-  "version": "2026.05.8",
+  "version": "2026.07.2",
   "author": {
     "name": "Michal Pasternak"
   },

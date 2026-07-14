@@ -1,7 +1,7 @@
 {
   "name": "freshdesk",
   "description": "Review of pending Freshdesk tickets (iplweb account) — fetches open tickets, ranks by composite priority (SLA → due date → priority → age), shows a readable list and drives action (open in panel, show conversation, change status/priority, draft a reply). Companion to ticket-resolver (which handles a single ticket end-to-end). iplweb-specific.",
-  "version": "2026.05.8",
+  "version": "2026.07.2",
   "author": {
     "name": "Michal Pasternak"
   },
